@@ -53,6 +53,10 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
 });
 
+// Routes untuk Teachers
+Route::get('/teachers', [App\Http\Controllers\TeacherController::class, 'index']);
+Route::get('/teachers/{id}', [App\Http\Controllers\TeacherController::class, 'show']);
+
 // ========== 🔧 FALLBACK ==========
 Route::fallback(function () {
     return response()->json(['message' => 'Endpoint not found'], 404);
