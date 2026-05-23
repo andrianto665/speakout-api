@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CourseController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\TeacherController; // ✅ Import TeacherController
 
 /*
 |--------------------------------------------------------------------------
@@ -14,8 +15,14 @@ use App\Http\Controllers\Api\AdminController;
 */
 
 // ========== 🌐 PUBLIC ROUTES ==========
+
+// Auth
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
+
+// Teachers (Public directory - bisa diakses tanpa login)
+Route::get('/teachers', [TeacherController::class, 'index']);
+Route::get('/teachers/{name}', [TeacherController::class, 'show']);
 
 // ========== 🔐 PROTECTED ROUTES (Semua user login) ==========
 Route::middleware('auth:sanctum')->group(function () {
@@ -35,29 +42,24 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 // ========== 👑 ADMIN ROUTES (Hanya admin) ==========
-// Gunakan middleware 'is_admin' yang sudah kita daftar di Step 2
 Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function () {
     
     // 📊 Stats Dashboard
     Route::get('/stats', [AdminController::class, 'getStats']);
     
     // 📚 Manage Courses (CRUD lengkap)
-    Route::get('/courses', [AdminController::class, 'index']);           // List semua course
-    Route::post('/courses', [AdminController::class, 'store']);          // Tambah course
-    Route::get('/courses/{course}', [AdminController::class, 'show']);   // Detail course
-    Route::put('/courses/{course}', [AdminController::class, 'update']); // Edit course
-    Route::delete('/courses/{course}', [AdminController::class, 'destroy']); // Hapus course
+    Route::get('/courses', [AdminController::class, 'index']);
+    Route::post('/courses', [AdminController::class, 'store']);
+    Route::get('/courses/{course}', [AdminController::class, 'show']);
+    Route::put('/courses/{course}', [AdminController::class, 'update']);
+    Route::delete('/courses/{course}', [AdminController::class, 'destroy']);
     
     // 👥 Manage Users
     Route::get('/users', [AdminController::class, 'getUsers']);
     Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
 });
 
-// Routes untuk Teachers
-Route::get('/teachers', [App\Http\Controllers\TeacherController::class, 'index']);
-Route::get('/teachers/{id}', [App\Http\Controllers\TeacherController::class, 'show']);
-
-// ========== 🔧 FALLBACK ==========
+// ========== 🔧 FALLBACK (Harus PALING BAWAH) ==========
 Route::fallback(function () {
     return response()->json(['message' => 'Endpoint not found'], 404);
 });
