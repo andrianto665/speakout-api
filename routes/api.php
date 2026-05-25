@@ -63,6 +63,8 @@ Route::get('/courses', [CourseController::class, 'index']);
 // Get Detail Course
 Route::get('/courses/{id}', [CourseController::class, 'show']);
 
+Route::get('/courses/{id}/progress', [ProgressController::class, 'getProgress']);
+
 
 /*
 |--------------------------------------------------------------------------
