@@ -3,8 +3,10 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+use App\Http\Controllers\Api\AdminContentController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CourseController;
+use App\Http\Controllers\Api\CourseProgressController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\TeacherController;
@@ -63,7 +65,7 @@ Route::get('/courses', [CourseController::class, 'index']);
 // Get Detail Course
 Route::get('/courses/{id}', [CourseController::class, 'show']);
 
-Route::get('/courses/{id}/progress', [ProgressController::class, 'getProgress']);
+
 
 
 /*
@@ -89,8 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ================= LEARNING PROGRESS =================
 
-    // Update Course Progress
-    Route::post('/courses/{id}/progress', [ProgressController::class, 'updateProgress']);
+   
 });
 
 
@@ -139,6 +140,31 @@ Route::middleware(['auth:sanctum', 'is_admin'])
         Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
     });
 
+    // Admin Content Management
+    Route::middleware(['auth:sanctum', 'admin'])->prefix('admin')->group(function () {
+    // Get all content for a course (FLAT structure)
+    Route::get('/courses/{courseId}/content', [AdminContentController::class, 'index']);
+    
+    // Store new content (meeting/lesson)
+    Route::post('/courses/{courseId}/content', [AdminContentController::class, 'store']);
+    
+    // Update content
+    Route::put('/content/{id}', [AdminContentController::class, 'update']);
+    
+    // Delete content
+    Route::delete('/content/{id}', [AdminContentController::class, 'destroy']);
+    });
+    
+    // ✅ TAMBAHKAN INI: Progress Tracking Routes
+    Route::middleware('auth:sanctum')->group(function () {
+    
+    // Get progress percentage for a course
+    Route::get('/courses/{courseId}/progress', [CourseProgressController::class, 'getProgress']);
+    
+    // Update progress for a specific meeting/lesson
+    Route::post('/courses/{courseId}/progress', [CourseProgressController::class, 'updateProgress']);
+    });
+    
 
 /*
 |--------------------------------------------------------------------------

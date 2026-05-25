@@ -11,13 +11,12 @@ return new class extends Migration
      */
     public function up()
 {
-    Schema::create('lessons', function (Blueprint $table) {
+    Schema::create('meetings', function (Blueprint $table) {
         $table->id();
-        $table->foreignId('meeting_id')->constrained()->onDelete('cascade'); // Relasi ke meetings
-        $table->string('title'); // Contoh: "Lesson 1: Greeting"
-        $table->string('type')->default('video'); // video, audio, pdf, quiz
-        $table->string('google_drive_link')->nullable(); // Link ke Google Drive
+        $table->foreignId('course_id')->constrained()->onDelete('cascade'); // Relasi ke courses
+        $table->string('name'); // Contoh: "Family 1"
         $table->integer('order')->default(0); // Urutan tampil
+        $table->text('description')->nullable();
         $table->timestamps();
     });
 }
@@ -27,6 +26,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('lessons');
+        Schema::dropIfExists('meetings');
     }
 };

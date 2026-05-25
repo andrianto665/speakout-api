@@ -10,6 +10,8 @@ class Course extends Model
         'title',
         'description',
         'instructor',
+        'price',
+        'level',
         'thumbnail'
     ];
 
@@ -17,5 +19,10 @@ class Course extends Model
     public function lessons()
     {
         return $this->hasMany(Lesson::class);
+    }
+
+    public function meetings()
+    {
+        return $this->hasMany(Meeting::class);
     }
 }

@@ -7,15 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 class Lesson extends Model
 {
     protected $fillable = [
-        'course_id',
-        'title',
-        'content_url',
-        'duration_minutes',
-        'order'
+        'meeting_id', 'title', 'type', 'google_drive_link', 'order'
     ];
 
-    public function course()
+    public function meeting()
     {
-        return $this->belongsTo(Course::class);
+        return $this->belongsTo(Meeting::class);
     }
 }
