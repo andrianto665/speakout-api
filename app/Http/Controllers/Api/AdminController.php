@@ -1,9 +1,10 @@
 <?php
 /**
- * Admin Controller - Handle admin dashboard & management
+ * Admin Controller
+ * 
+ * Handles admin dashboard, course management, and user management.
  * 
  * @package App\Http\Controllers\Api
- * @author SpeakOut Team
  */
 
 namespace App\Http\Controllers\Api;
@@ -16,6 +17,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class AdminController extends Controller
 {
@@ -26,40 +29,171 @@ class AdminController extends Controller
     public function getStats(): JsonResponse
     {
         try {
-            // Pastikan yang akses adalah admin
-            $user = Auth::user();
-            if (!$user || $user->role !== 'admin') {
-                return response()->json(['message' => 'Access denied. Admin privileges required.'], 403);
-            }
+            $this->ensureAdmin();
             
-            // ✅ FIX: Query yang benar (tanpa kolom 'progress' yang tidak ada)
             return response()->json([
                 'total_users' => User::count(),
                 'total_courses' => Course::count(),
                 'total_enrollments' => Enrollment::count(),
-                // ✅ Gunakan completed_at, BUKAN progress
                 'completed_courses' => Enrollment::whereNotNull('completed_at')->count()
             ]);
             
         } catch (\Exception $e) {
             Log::error('AdminController@getStats: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load stats'], 500);
+        }
+    }
+    
+    /**
+     * GET: List all courses (for admin management)
+     * Endpoint: GET /api/admin/courses
+     */
+    public function index(): JsonResponse
+    {
+        try {
+            $this->ensureAdmin();
+            
+            $courses = Course::withCount(['meetings as total_lessons' => fn($q) => $q->whereNotNull('content')])
+                ->select('id', 'title', 'description', 'instructor', 'thumbnail', 'created_at')
+                ->orderBy('created_at', 'desc')
+                ->paginate(20);
+            
+            return response()->json($courses);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@index: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load courses'], 500);
+        }
+    }
+    
+    /**
+     * GET: Show single course details
+     * Endpoint: GET /api/admin/courses/{course}
+     */
+    public function show($course): JsonResponse
+    {
+        try {
+            $this->ensureAdmin();
+            
+            $courseModel = Course::with(['meetings' => fn($q) => $q->orderBy('order_number')])
+                ->findOrFail($course);
+            
+            return response()->json($courseModel);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@show: ' . $e->getMessage());
+            return response()->json(['message' => 'Course not found'], 404);
+        }
+    }
+    
+    /**
+     * POST: Create new course
+     * Endpoint: POST /api/admin/courses
+     */
+    public function store(Request $request): JsonResponse
+    {
+        try {
+            $this->ensureAdmin();
+            
+            // Validate input
+            $validated = $request->validate([
+                'title' => 'required|string|max:255',
+                'description' => 'nullable|string|max:1000',
+                'instructor' => 'required|string|max:255',
+                'thumbnail' => 'nullable|url'
+            ]);
+            
+            // Create course
+            $course = Course::create($validated);
+            
             return response()->json([
-                'message' => 'Failed to load stats',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
+                'message' => 'Course created successfully',
+                'course' => $course
+            ], 201);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('AdminController@store: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to create course'], 500);
+        }
+    }
+    
+    /**
+     * PUT: Update existing course
+     * Endpoint: PUT /api/admin/courses/{course}
+     */
+    public function update(Request $request, $course): JsonResponse
+    {
+        try {
+            $this->ensureAdmin();
+            
+            $courseModel = Course::findOrFail($course);
+            
+            // Validate input
+            $validated = $request->validate([
+                'title' => 'sometimes|required|string|max:255',
+                'description' => 'nullable|string|max:1000',
+                'instructor' => 'sometimes|required|string|max:255',
+                'thumbnail' => 'nullable|url'
+            ]);
+            
+            // Update course
+            $courseModel->update($validated);
+            
+            return response()->json([
+                'message' => 'Course updated successfully',
+                'course' => $courseModel
+            ]);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('AdminController@update: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to update course'], 500);
+        }
+    }
+    
+    /**
+     * DELETE: Delete course
+     * Endpoint: DELETE /api/admin/courses/{course}
+     */
+    public function destroy($course): JsonResponse
+    {
+        try {
+            $this->ensureAdmin();
+            
+            $courseModel = Course::findOrFail($course);
+            
+            // Delete related data first (meetings, enrollments)
+            $courseModel->meetings()->delete();
+            Enrollment::where('course_id', $courseModel->id)->delete();
+            
+            // Delete course
+            $courseModel->delete();
+            
+            return response()->json(['message' => 'Course deleted successfully']);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@destroy: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to delete course'], 500);
         }
     }
     
     /**
      * GET: List all users (for admin management)
+     * Endpoint: GET /api/admin/users
      */
     public function getUsers(): JsonResponse
     {
         try {
-            $user = Auth::user();
-            if (!$user || $user->role !== 'admin') {
-                return response()->json(['message' => 'Access denied. Admin privileges required.'], 403);
-            }
+            $this->ensureAdmin();
             
             $users = User::select('id', 'name', 'email', 'role', 'created_at')
                 ->orderBy('created_at', 'desc')
@@ -74,29 +208,49 @@ class AdminController extends Controller
     }
     
     /**
-     * DELETE: Delete a user (admin only)
+     * DELETE: Delete user
+     * Endpoint: DELETE /api/admin/users/{user}
      */
-    public function deleteUser($userId): JsonResponse
+    public function deleteUser($user): JsonResponse
     {
         try {
-            $user = Auth::user();
-            if (!$user || $user->role !== 'admin') {
-                return response()->json(['message' => 'Access denied. Admin privileges required.'], 403);
-            }
+            $this->ensureAdmin();
+            
+            $userModel = User::findOrFail($user);
             
             // Prevent deleting self
-            if ($user->id == $userId) {
+            if ($userModel->id === Auth::id()) {
                 return response()->json(['message' => 'Cannot delete your own account'], 400);
             }
             
-            $target = User::findOrFail($userId);
-            $target->delete();
+            // Prevent deleting other admins (optional safety)
+            if ($userModel->role === 'admin' && Auth::user()->id !== $userModel->id) {
+                return response()->json(['message' => 'Cannot delete other admin accounts'], 403);
+            }
+            
+            // Delete related enrollments first
+            Enrollment::where('user_id', $userModel->id)->delete();
+            
+            // Delete user
+            $userModel->delete();
             
             return response()->json(['message' => 'User deleted successfully']);
             
         } catch (\Exception $e) {
             Log::error('AdminController@deleteUser: ' . $e->getMessage());
             return response()->json(['message' => 'Failed to delete user'], 500);
+        }
+    }
+    
+    /**
+     * Helper: Ensure user is admin
+     * @throws \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException
+     */
+    private function ensureAdmin(): void
+    {
+        $user = Auth::user();
+        if (!$user || $user->role !== 'admin') {
+            throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('Admin privileges required');
         }
     }
 }

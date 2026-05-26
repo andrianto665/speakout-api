@@ -109,79 +109,129 @@ class CourseProgressController extends Controller
     }
     
     /**
-     * Check if course is fully completed after lesson update
-     * 
-     * Auto-updates enrollment.completed_at if all lessons are done.
-     * 
-     * POST /api/courses/{courseId}/check-completion
-     * 
-     * @param  int  $courseId
-     * @return JsonResponse
-     */
-    public function checkCourseCompletion(int $courseId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
+ * Check if course is fully completed after lesson update
+ * 
+ * Auto-updates enrollment.completed_at & generates certificate if all lessons are done.
+ * 
+ * POST /api/courses/{courseId}/check-completion
+ * 
+ * @param  int  $courseId
+ * @return JsonResponse
+ */
+public function checkCourseCompletion(int $courseId): JsonResponse
+{
+    try {
+        $user = Auth::user();
+        
+        // 1. Get ALL lesson IDs for this course (only items with actual content)
+        $lessonIds = \App\Models\Meeting::where('course_id', $courseId)
+            ->whereNotNull('content')  // Only lessons, not meeting headers
+            ->pluck('id')
+            ->toArray();
+        
+        // Handle courses with no lessons
+        if (empty($lessonIds)) {
+            // Auto-complete if no lessons exist
+            \App\Models\Enrollment::updateOrCreate(
+                ['user_id' => $user->id, 'course_id' => $courseId],
+                ['completed_at' => now()]
+            );
             
-            // Get all lesson IDs for this course (items with content only)
-            $lessonIds = Meeting::where('course_id', $courseId)
-                ->whereNotNull('content')
-                ->pluck('id');
+            // Generate certificate if not exists
+            $this->generateCertificateIfMissing($user->id, $courseId);
             
-            // Handle courses with no lessons
-            if ($lessonIds->isEmpty()) {
-                return response()->json([
-                    'course_completed' => true,
-                    'progress' => 100,
-                    'total_lessons' => 0,
-                    'completed_lessons' => 0,
-                    'message' => 'No lessons in this course'
-                ]);
-            }
-            
-            // Get completed lesson IDs for this user
-            $completedIds = UserProgress::where('user_id', $user->id)
-                ->where('is_completed', true)
-                ->whereIn('meeting_id', $lessonIds)
-                ->pluck('meeting_id');
-            
-            // Calculate progress
-            $total = $lessonIds->count();
-            $completed = $completedIds->count();
-            $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
-            $isCompleted = $completed >= $total;
-            
-            // ✅ If all lessons completed, mark enrollment as completed
-            if ($isCompleted) {
-                Enrollment::updateOrCreate(
-                    ['user_id' => $user->id, 'course_id' => $courseId],
-                    ['completed_at' => now()]
-                );
-                
-                return response()->json([
-                    'course_completed' => true,
-                    'progress' => 100,
-                    'total_lessons' => $total,
-                    'completed_lessons' => $completed,
-                    'message' => '🎉 Course completed! Certificate earned!'
-                ]);
-            }
-            
-            // Course not yet completed
             return response()->json([
-                'course_completed' => false,
-                'progress' => $progress,
-                'total_lessons' => $total,
-                'completed_lessons' => $completed
+                'course_completed' => true,
+                'progress' => 100,
+                'total_lessons' => 0,
+                'completed_lessons' => 0,
+                'message' => '🎉 Course completed! Certificate earned!'
             ]);
+        }
+        
+        // 2. Get completed lesson IDs for this user
+        $completedIds = \App\Models\UserProgress::where('user_id', $user->id)
+            ->where('is_completed', true)
+            ->whereIn('meeting_id', $lessonIds)
+            ->pluck('meeting_id')
+            ->toArray();
+        
+        // 3. Calculate progress
+        $total = count($lessonIds);
+        $completed = count($completedIds);
+        $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
+        $isCompleted = $completed >= $total;
+        
+        // 4. If all lessons completed, mark enrollment & generate certificate
+        if ($isCompleted) {
+            // Update enrollment
+            \App\Models\Enrollment::updateOrCreate(
+                ['user_id' => $user->id, 'course_id' => $courseId],
+                ['completed_at' => now()]
+            );
             
-        } catch (\Exception $e) {
-            Log::error('CourseProgressController@checkCourseCompletion: ' . $e->getMessage());
+            // Generate certificate if not exists yet
+            $this->generateCertificateIfMissing($user->id, $courseId);
             
             return response()->json([
-                'message' => 'Failed to check completion',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
+                'course_completed' => true,
+                'progress' => 100,
+                'total_lessons' => $total,
+                'completed_lessons' => $completed,
+                'message' => '🎉 Course completed! Certificate earned!'
+            ]);
+        }
+        
+        // Course not yet completed
+        return response()->json([
+            'course_completed' => false,
+            'progress' => $progress,
+            'total_lessons' => $total,
+            'completed_lessons' => $completed
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('CourseProgressController@checkCourseCompletion: ' . $e->getMessage(), [
+            'user_id' => Auth::id() ?? null,
+            'course_id' => $courseId
+        ]);
+        
+        return response()->json([
+            'message' => 'Failed to check completion',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
+    }
+}
+
+/**
+ * Helper: Generate certificate if not exists yet
+ */
+private function generateCertificateIfMissing(int $userId, int $courseId): void
+{
+    // Check if certificate already exists
+    $exists = \App\Models\Certificate::where('user_id', $userId)
+        ->where('course_id', $courseId)
+        ->exists();
+    
+    if (!$exists) {
+        try {
+            $user = \App\Models\User::find($userId);
+            $course = \App\Models\Course::find($courseId);
+            
+            if ($user && $course) {
+                $service = new \App\Services\CertificateService();
+                $service->generateCertificate($user, $course);
+                
+                \Log::info("Certificate generated", [
+                    'user_id' => $userId,
+                    'course_id' => $courseId,
+                    'certificate_number' => $service->generateCertificate($user, $course)->certificate_number ?? 'unknown'
+                ]);
+            }
+        } catch (\Exception $e) {
+            \Log::error("Failed to generate certificate: " . $e->getMessage());
+            // Don't throw - certificate is optional, don't break the flow
         }
     }
+}
 }
