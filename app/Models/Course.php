@@ -25,4 +25,15 @@ class Course extends Model
     {
         return $this->hasMany(Meeting::class);
     }
+
+    // app/Models/Course.php - tambahkan relasi:
+public function enrollments() {
+    return $this->hasMany(Enrollment::class);
+}
+
+public function enrolledUsers() {
+    return $this->belongsToMany(User::class, 'enrollments')
+                ->withTimestamps()
+                ->withPivot('enrolled_at', 'completed_at');
+}
 }

@@ -42,4 +42,15 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
     ];
+
+    // app/Models/User.php - tambahkan relasi:
+public function enrollments() {
+    return $this->hasMany(Enrollment::class);
+}
+
+public function enrolledCourses() {
+    return $this->belongsToMany(Course::class, 'enrollments')
+                ->withTimestamps()
+                ->withPivot('enrolled_at', 'completed_at');
+}
 }

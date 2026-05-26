@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\CourseProgressController;
 use App\Http\Controllers\Api\ProgressController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\TeacherController;
+use App\Http\Controllers\Api\UserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -164,6 +165,41 @@ Route::middleware(['auth:sanctum', 'is_admin'])
     // Update progress for a specific meeting/lesson
     Route::post('/courses/{courseId}/progress', [CourseProgressController::class, 'updateProgress']);
     });
+
+    // User Dashboard & Enrollments
+    Route::middleware('auth:sanctum')->group(function () {
+    
+    // ✅ Get courses that user is enrolled in (dengan progress)
+    Route::get('/user/enrolled-courses', [UserController::class, 'getEnrolledCourses']);
+    
+    // ✅ Enroll in a course
+    Route::post('/user/enroll/{courseId}', [UserController::class, 'enroll']);
+    
+    // ✅ Get dashboard summary
+    Route::get('/user/dashboard', [UserController::class, 'getDashboardSummary']);
+    
+    });
+
+    // 🔧 DEBUG: Cek user yang login (hapus setelah selesai testing)
+Route::middleware('auth:sanctum')->get('/debug/whoami', function (\Illuminate\Http\Request $request) {
+    $user = $request->user();
+    return response()->json([
+        'id' => $user->id,
+        'name' => $user->name,
+        'email' => $user->email,
+        'role' => $user->role,
+        'enrolled_count' => $user->enrolledCourses()->count()
+    ]);
+});
+
+// Course Progress & Completion
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/courses/{courseId}/progress', [CourseProgressController::class, 'getProgress']);
+    Route::post('/courses/{courseId}/progress', [CourseProgressController::class, 'updateProgress']);
+    
+    // ✅ NEW: Auto-check course completion
+    Route::post('/courses/{courseId}/check-completion', [CourseProgressController::class, 'checkCourseCompletion']);
+});
     
 
 /*

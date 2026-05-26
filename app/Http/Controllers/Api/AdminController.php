@@ -1,106 +1,102 @@
 <?php
+/**
+ * Admin Controller - Handle admin dashboard & management
+ * 
+ * @package App\Http\Controllers\Api
+ * @author SpeakOut Team
+ */
 
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\User;
 use App\Models\Course;
 use App\Models\Enrollment;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
     /**
-     * GET /api/admin/stats
+     * GET: Admin dashboard stats
+     * Endpoint: GET /api/admin/stats
      */
-    public function getStats()
+    public function getStats(): JsonResponse
     {
-        return response()->json([
-            'total_users' => User::count(),
-            'total_courses' => Course::count(),
-            'total_enrollments' => Enrollment::count(),
-            'completed_courses' => Enrollment::where('progress', 100)->count(),
-        ]);
-    }
-
-    /**
-     * GET /api/admin/courses
-     */
-    public function index()
-    {
-        $courses = Course::withCount('lessons')->get();
-        return response()->json($courses);
-    }
-
-    /**
-     * POST /api/admin/courses
-     */
-    public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'instructor' => 'required|string|max:255',
-        ]);
-
-        $course = Course::create($validated);
-        return response()->json($course, 201);
-    }
-
-    /**
-     * GET /api/admin/courses/{course}
-     */
-    public function show(Course $course)
-    {
-        return response()->json($course->load('lessons'));
-    }
-
-    /**
-     * PUT /api/admin/courses/{course}
-     */
-    public function update(Request $request, Course $course)
-    {
-        $validated = $request->validate([
-            'title' => 'sometimes|required|string|max:255',
-            'description' => 'nullable|string',
-            'instructor' => 'sometimes|required|string|max:255',
-        ]);
-
-        $course->update($validated);
-        return response()->json($course);
-    }
-
-    /**
-     * DELETE /api/admin/courses/{course}
-     */
-    public function destroy(Course $course)
-    {
-        $course->delete();
-        return response()->json(null, 204);
-    }
-
-    /**
-     * GET /api/admin/users
-     */
-    public function getUsers()
-    {
-        $users = User::select('id', 'name', 'email', 'role', 'created_at')
-                    ->orderBy('created_at', 'desc')
-                    ->get();
-        return response()->json($users);
-    }
-
-    /**
-     * DELETE /api/admin/users/{user}
-     */
-    public function deleteUser(User $user)
-    {
-        // Cegah admin menghapus dirinya sendiri
-        if ($user->id === auth()->id()) {
-            return response()->json(['message' => 'Cannot delete your own account'], 400);
+        try {
+            // Pastikan yang akses adalah admin
+            $user = Auth::user();
+            if (!$user || $user->role !== 'admin') {
+                return response()->json(['message' => 'Access denied. Admin privileges required.'], 403);
+            }
+            
+            // ✅ FIX: Query yang benar (tanpa kolom 'progress' yang tidak ada)
+            return response()->json([
+                'total_users' => User::count(),
+                'total_courses' => Course::count(),
+                'total_enrollments' => Enrollment::count(),
+                // ✅ Gunakan completed_at, BUKAN progress
+                'completed_courses' => Enrollment::whereNotNull('completed_at')->count()
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@getStats: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to load stats',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         }
-        
-        $user->delete();
-        return response()->json(null, 204);
+    }
+    
+    /**
+     * GET: List all users (for admin management)
+     */
+    public function getUsers(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            if (!$user || $user->role !== 'admin') {
+                return response()->json(['message' => 'Access denied. Admin privileges required.'], 403);
+            }
+            
+            $users = User::select('id', 'name', 'email', 'role', 'created_at')
+                ->orderBy('created_at', 'desc')
+                ->paginate(20);
+            
+            return response()->json($users);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@getUsers: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load users'], 500);
+        }
+    }
+    
+    /**
+     * DELETE: Delete a user (admin only)
+     */
+    public function deleteUser($userId): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            if (!$user || $user->role !== 'admin') {
+                return response()->json(['message' => 'Access denied. Admin privileges required.'], 403);
+            }
+            
+            // Prevent deleting self
+            if ($user->id == $userId) {
+                return response()->json(['message' => 'Cannot delete your own account'], 400);
+            }
+            
+            $target = User::findOrFail($userId);
+            $target->delete();
+            
+            return response()->json(['message' => 'User deleted successfully']);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@deleteUser: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to delete user'], 500);
+        }
     }
 }
