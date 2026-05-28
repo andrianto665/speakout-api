@@ -4,15 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Certificate;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf; // ✅ Import dompdf facade
 
 class CertificateController extends Controller
 {
     /**
-     * Download certificate PDF
+     * Download certificate PDF (Generate on-the-fly with dompdf)
      * 
      * GET /api/user/certificates/{courseId}/download
      */
@@ -26,9 +25,10 @@ class CertificateController extends Controller
                 'course_id' => $courseId
             ]);
 
-            // 1. Cari certificate di database
+            // 1. Cari certificate di database + load relasi
             $certificate = Certificate::where('user_id', $user->id)
                 ->where('course_id', $courseId)
+                ->with(['user', 'course'])
                 ->first();
             
             if (!$certificate) {
@@ -42,25 +42,37 @@ class CertificateController extends Controller
                 ], 404);
             }
 
-            // 2. Cek apakah file PDF ada
-            $filePath = $certificate->file_path;
-            Log::info("Checking certificate file", ['path' => $filePath]);
+            // 2. Prepare data untuk Blade template
+            $verificationUrl = config('app.url') . '/verify/' . $certificate->verification_code;
             
-            if (!Storage::disk('public')->exists($filePath)) {
-                Log::error("Certificate file not found on disk", ['path' => $filePath]);
-                
-                return response()->json([
-                    'message' => 'Certificate file not found on server.'
-                ], 404);
-            }
+            $data = [
+                'userName' => $certificate->user->name ?? 'Student',
+                'courseTitle' => $certificate->course->title ?? 'Course',
+                'completedDate' => $certificate->issued_at ?? now(),
+                'certificateNumber' => $certificate->certificate_number,
+                'verificationCode' => $certificate->verification_code,
+                'qrCode' => 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' . urlencode($verificationUrl),
+                'qrCodeType' => 'url',
+                'instructorName' => $certificate->course->instructor ?? 'Krisna Islami',
+                'directorName' => 'Dr. SpeakOut',
+            ];
 
-            // 3. Download file
-            $fullPath = Storage::disk('public')->path($filePath);
-            Log::info("Downloading certificate", ['full_path' => $fullPath]);
-            
-            return response()->download($fullPath, "{$certificate->certificate_number}.pdf", [
-                'Content-Type' => 'application/pdf',
+            Log::info("Generating PDF", [
+                'user' => $data['userName'],
+                'course' => $data['courseTitle'],
+                'cert_number' => $data['certificateNumber']
             ]);
+
+            // 3. Generate PDF menggunakan dompdf
+            $pdf = Pdf::loadView('certificates.course', $data)
+                ->setPaper('a4', 'landscape')
+                ->setOption('margin_top', 0)
+                ->setOption('margin_bottom', 0)
+                ->setOption('margin_left', 0)
+                ->setOption('margin_right', 0);
+
+            // 4. Return PDF untuk di-download
+            return $pdf->download('Certificate-' . $certificate->certificate_number . '.pdf');
 
         } catch (\Exception $e) {
             Log::error('CertificateController@download error: ' . $e->getMessage(), [
@@ -69,7 +81,7 @@ class CertificateController extends Controller
             ]);
             
             return response()->json([
-                'message' => 'Failed to download certificate.',
+                'message' => 'Failed to generate certificate.',
                 'error' => config('app.debug') ? $e->getMessage() : null
             ], 500);
         }

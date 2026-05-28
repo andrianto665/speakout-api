@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\CourseController;
 use App\Http\Controllers\Api\CourseProgressController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\QuizController;
 
 /*
 |--------------------------------------------------------------------------
@@ -70,7 +71,15 @@ Route::middleware('auth:sanctum')->group(function () {
         'role' => $request->user()->role,
         'enrolled_count' => $request->user()->enrolledCourses()->count()
     ]));
-});
+
+    // ================= QUIZ SYSTEM =================
+    // Ambil soal quiz (tanpa kunci jawaban)
+    Route::get('/quizzes/{quizId}', [QuizController::class, 'show']);
+    
+    // Submit jawaban & auto-grade
+    Route::post('/quizzes/{quizId}/submit', [QuizController::class, 'submit']);
+    
+});  // ← ✅ TUTUP GROUP auth:sanctum DI SINI (setelah quiz routes)
 
 
 /*
@@ -99,6 +108,9 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::post('/courses/{courseId}/content', [AdminContentController::class, 'store']);
     Route::put('/content/{id}', [AdminContentController::class, 'update']);
     Route::delete('/content/{id}', [AdminContentController::class, 'destroy']);
+
+    // Quiz Attempts Monitoring
+    Route::get('/quiz-attempts', [AdminController::class, 'getQuizAttempts']);
 });
 
 

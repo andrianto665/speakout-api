@@ -241,6 +241,60 @@ class AdminController extends Controller
             return response()->json(['message' => 'Failed to delete user'], 500);
         }
     }
+
+        /**
+     * GET: List all quiz attempts with filters
+     * Endpoint: GET /api/admin/quiz-attempts
+     */
+    public function getQuizAttempts(Request $request): JsonResponse
+    {
+        try {
+            $this->ensureAdmin();
+            
+            $query = \App\Models\QuizAttempt::with([
+                'user' => fn($q) => $q->select('id', 'name', 'email'),
+                'quiz.meeting.course' => fn($q) => $q->select('id', 'title')
+            ]);
+            
+            // Filter by course
+            if ($request->filled('course_id')) {
+                $query->whereHas('quiz.meeting', fn($q) => 
+                    $q->where('course_id', $request->course_id)
+                );
+            }
+            
+            // Filter by status (passed/failed)
+            if ($request->filled('status')) {
+                $query->where('passed', $request->status === 'passed');
+            }
+            
+            // Filter by date
+            if ($request->filled('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            $attempts = $query->orderBy('created_at', 'desc')->limit(100)->get();
+            
+            // Format response for frontend
+            $formatted = $attempts->map(fn($a) => [
+                'id' => $a->id,
+                'user_name' => $a->user->name ?? null,
+                'user_email' => $a->user->email ?? null,
+                'course_title' => $a->quiz->meeting->course->title ?? null,
+                'quiz_title' => $a->quiz->title ?? null,
+                'score' => $a->score,
+                'passed' => (bool) $a->passed,
+                'attempt_number' => $a->attempt_number,
+                'created_at' => $a->created_at,
+            ]);
+            
+            return response()->json($formatted);
+            
+        } catch (\Exception $e) {
+            Log::error('AdminController@getQuizAttempts: ' . $e->getMessage());
+            return response()->json(['message' => 'Failed to load quiz attempts'], 500);
+        }
+    }
     
     /**
      * Helper: Ensure user is admin

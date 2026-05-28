@@ -22,4 +22,10 @@ class Meeting extends Model
     {
         return $this->belongsTo(Course::class);
     }
+
+    // 🔗 Relasi ke Kuis (Opsional, karena tidak semua meeting adalah kuis)
+    public function quiz(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Quiz::class, 'meeting_id');
+    }
 }

@@ -150,8 +150,11 @@ class UserController extends Controller
     {
         $meetings = $course->meetings;
         
-        // Filter only lessons (items with content), exclude meeting headers
-        $lessons = $meetings->filter(fn ($m) => $m->content !== null);
+        // ✅ FIXED: Include lessons WITH content OR quiz/final type meetings
+        // Quiz meetings have content=null but type='quiz', so we must include them!
+        $lessons = $meetings->filter(fn ($m) => 
+            $m->content !== null || in_array($m->type, ['quiz', 'final'])
+        );
         
         // Get completed lesson IDs for this user
         $completedIds = UserProgress::where('user_id', $user->id)
@@ -229,7 +232,12 @@ class UserController extends Controller
      */
     private function formatCourseSummary($course, $user): array
     {
-        $lessons = $course->meetings->filter(fn ($m) => $m->content !== null);
+        $meetings = $course->meetings;
+        
+        // ✅ FIXED: Same fix as formatCourseWithProgress - include quiz/final meetings
+        $lessons = $meetings->filter(fn ($m) => 
+            $m->content !== null || in_array($m->type, ['quiz', 'final'])
+        );
         
         $completed = UserProgress::where('user_id', $user->id)
             ->where('is_completed', true)

@@ -10,13 +10,21 @@ class Authenticate extends Middleware
     /**
      * Get the path the user should be redirected to when they are not authenticated.
      * 
-     * For API requests: return null → Laravel will return 401 JSON response
-     * For web requests: return route('login') → redirect to login page
+     * ✅ Untuk API request (Accept: application/json): return null → auto 401 JSON
+     * ✅ Untuk web request (browser): return route('login') → redirect ke halaman login
      */
     protected function redirectTo(Request $request): ?string
     {
-        // ✅ Jika request expects JSON (API), return null → auto 401 JSON response
-        // ✅ Jika request browser (web), return route login
-        return $request->expectsJson() ? null : route('login');
+        // Jika request mengharapkan JSON (API), jangan redirect → return null
+        if ($request->expectsJson()) {
+            return null;
+        }
+        
+        // Untuk web request, redirect ke route login (jika ada)
+        // Gunakan route()->has() untuk cek apakah route login terdefinisi
+        return $request->route()->hasParameter('login') || 
+               app('router')->has('login') 
+            ? route('login') 
+            : null;
     }
 }
