@@ -6,13 +6,14 @@ use Illuminate\Support\Facades\Route;
 // ================= CONTROLLERS =================
 use App\Http\Controllers\Api\AdminContentController;
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\AdminQuizController; // ✅ Sudah ditambahkan
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CertificateController;
 use App\Http\Controllers\Api\CourseController;
 use App\Http\Controllers\Api\CourseProgressController;
+use App\Http\Controllers\Api\QuizController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\UserController;
-use App\Http\Controllers\Api\QuizController;
 
 /*
 |--------------------------------------------------------------------------
@@ -79,7 +80,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Submit jawaban & auto-grade
     Route::post('/quizzes/{quizId}/submit', [QuizController::class, 'submit']);
     
-});  // ← ✅ TUTUP GROUP auth:sanctum DI SINI (setelah quiz routes)
+}); // ← ✅ TUTUP GROUP auth:sanctum DI SINI
 
 
 /*
@@ -99,6 +100,10 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::put('/courses/{course}', [AdminController::class, 'update']);
     Route::delete('/courses/{course}', [AdminController::class, 'destroy']);
 
+    // ✅ QUIZ QUESTION MANAGEMENT (BARU DITAMBAHKAN)
+    // POST /api/admin/quizzes/{quizId}/questions
+    Route::post('/quizzes/{quizId}/questions', [AdminQuizController::class, 'addQuestion']);
+
     // ================= USER MANAGEMENT =================
     Route::get('/users', [AdminController::class, 'getUsers']);
     Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
@@ -109,9 +114,24 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::put('/content/{id}', [AdminContentController::class, 'update']);
     Route::delete('/content/{id}', [AdminContentController::class, 'destroy']);
 
-    // Quiz Attempts Monitoring
+    // ================= QUIZ ATTEMPTS MONITORING =================
     Route::get('/quiz-attempts', [AdminController::class, 'getQuizAttempts']);
 });
+
+// ✅ NEW: List all quizzes with course info
+    Route::get('/quizzes', function () {
+        $quizzes = \App\Models\Quiz::with(['meeting.course' => fn($q) => $q->select('id', 'title')])
+            ->select('id', 'title', 'meeting_id')
+            ->get()
+            ->map(fn($quiz) => [
+                'id' => $quiz->id,  // ✅ This is the quiz_id to use!
+                'title' => $quiz->title,
+                'course_title' => $quiz->meeting->course->title ?? 'Unknown',
+                'meeting_id' => $quiz->meeting_id,
+            ]);
+        
+        return response()->json($quizzes);
+    });
 
 
 /*

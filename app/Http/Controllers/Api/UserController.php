@@ -31,7 +31,6 @@ class UserController extends Controller
         try {
             $user = Auth::user();
             
-            // Get enrolled courses with ordered meetings
             $enrolledCourses = $user->enrolledCourses()
                 ->with(['meetings' => function ($query) {
                     $query->orderBy('order_number');
@@ -55,20 +54,13 @@ class UserController extends Controller
      * Enroll user in a course
      * 
      * POST /api/user/enroll/{courseId}
-     * 
-     * @param  Request  $request
-     * @param  int  $courseId
-     * @return JsonResponse
      */
     public function enroll(Request $request, int $courseId): JsonResponse
     {
         try {
             $user = Auth::user();
-            
-            // Validate course exists
             $course = Course::findOrFail($courseId);
             
-            // Check if already enrolled
             $existing = Enrollment::where('user_id', $user->id)
                 ->where('course_id', $courseId)
                 ->first();
@@ -81,7 +73,6 @@ class UserController extends Controller
                 ], 200);
             }
             
-            // Create new enrollment
             $enrollment = Enrollment::create([
                 'user_id' => $user->id,
                 'course_id' => $courseId,
@@ -96,10 +87,8 @@ class UserController extends Controller
             
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return response()->json(['message' => 'Course not found'], 404);
-            
         } catch (\Exception $e) {
             Log::error('UserController@enroll: ' . $e->getMessage());
-            
             return response()->json([
                 'message' => 'Enrollment failed',
                 'error' => config('app.debug') ? $e->getMessage() : null
@@ -108,11 +97,9 @@ class UserController extends Controller
     }
     
     /**
-     * Get dashboard summary (stats + courses)
+     * Get dashboard summary
      * 
      * GET /api/user/dashboard
-     * 
-     * @return JsonResponse
      */
     public function getDashboardSummary(): JsonResponse
     {
@@ -127,7 +114,6 @@ class UserController extends Controller
             
         } catch (\Exception $e) {
             Log::error('UserController@getDashboardSummary: ' . $e->getMessage());
-            
             return response()->json([
                 'message' => 'Failed to load dashboard',
                 'error' => config('app.debug') ? $e->getMessage() : null
@@ -140,36 +126,65 @@ class UserController extends Controller
     // =========================================================================
     
     /**
+     * ✅ ROBUST: Filter lessons - include content OR quiz/test/final types
+     */
+    private function isLesson($meeting): bool
+    {
+        // Include if has content
+        if ($meeting->content !== null && $meeting->content !== '') {
+            return true;
+        }
+        
+        // Include if it's a quiz/test/final (case-insensitive)
+        $type = strtolower($meeting->type ?? '');
+        if (in_array($type, ['quiz', 'final', 'test', 'quiz_assessment', 'assessment'])) {
+            return true;
+        }
+        
+        // Include if marked as has_test or is_final_test (fallback)
+        if (!empty($meeting->has_test) || !empty($meeting->is_final_test)) {
+            return true;
+        }
+        
+        return false;
+    }
+    
+    /**
      * Format course data with progress calculation
-     * 
-     * @param  \App\Models\Course  $course
-     * @param  \App\Models\User  $user
-     * @return array
      */
     private function formatCourseWithProgress($course, $user): array
     {
         $meetings = $course->meetings;
         
-        // ✅ FIXED: Include lessons WITH content OR quiz/final type meetings
-        // Quiz meetings have content=null but type='quiz', so we must include them!
-        $lessons = $meetings->filter(fn ($m) => 
-            $m->content !== null || in_array($m->type, ['quiz', 'final'])
-        );
+        // ✅ Use robust filter
+        $lessons = $meetings->filter(fn($m) => $this->isLesson($m));
         
-        // Get completed lesson IDs for this user
+        // Get completed lesson IDs
+        $lessonIds = $lessons->pluck('id');
         $completedIds = UserProgress::where('user_id', $user->id)
             ->where('is_completed', true)
-            ->whereIn('meeting_id', $lessons->pluck('id'))
+            ->whereIn('meeting_id', $lessonIds)
             ->pluck('meeting_id');
         
         // Calculate progress
         $total = $lessons->count();
-        $completed = $lessons->filter(fn ($m) => $completedIds->contains($m->id))->count();
+        $completed = $lessons->filter(fn($m) => $completedIds->contains($m->id))->count();
         $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
         
-        // Find next incomplete lesson (or last lesson if all completed)
-        $nextLesson = $lessons->first(fn ($m) => !$completedIds->contains($m->id)) 
-            ?? $lessons->last();
+        // 🔍 Debug logging (remove after fix)
+        Log::info('Progress Debug - formatCourseWithProgress', [
+            'course_id' => $course->id,
+            'course_title' => $course->title,
+            'user_id' => $user->id,
+            'total_meetings' => $meetings->count(),
+            'filtered_lessons_count' => $total,
+            'filtered_lesson_ids' => $lessonIds->toArray(),
+            'completed_ids' => $completedIds->toArray(),
+            'completed_count' => $completed,
+            'progress' => $progress,
+        ]);
+        
+        $nextLesson = $lessons->first(fn($m) => !$completedIds->contains($m->id)) ?? $lessons->last();
         
         return [
             'id' => $course->id,
@@ -181,6 +196,7 @@ class UserController extends Controller
             'progress' => $progress,
             'total_lessons' => $total,
             'completed_lessons' => $completed,
+            'is_completed' => (int) $progress === 100,
             'last_lesson' => $nextLesson ? [
                 'id' => $nextLesson->id,
                 'title' => $nextLesson->title,
@@ -191,10 +207,7 @@ class UserController extends Controller
     }
     
     /**
-     * Get user statistics for dashboard
-     * 
-     * @param  \App\Models\User  $user
-     * @return array
+     * Get user statistics
      */
     private function getUserStats($user): array
     {
@@ -204,48 +217,52 @@ class UserController extends Controller
                 ->whereNotNull('completed_at')
                 ->count(),
             'in_progress' => $user->enrolledCourses()
-                ->whereDoesntHave('enrollments', fn ($q) => $q->whereNotNull('completed_at'))
+                ->whereDoesntHave('enrollments', fn($q) => $q->whereNotNull('completed_at'))
                 ->count()
         ];
     }
     
     /**
-     * Get in-progress courses with progress percentage
-     * 
-     * @param  \App\Models\User  $user
-     * @return \Illuminate\Support\Collection
+     * Get in-progress courses
      */
     private function getInProgressCourses($user)
     {
         return $user->enrolledCourses()
-            ->with(['meetings' => fn ($q) => $q->orderBy('order_number')])
+            ->with(['meetings' => fn($q) => $q->orderBy('order_number')])
             ->get()
-            ->map(fn ($course) => $this->formatCourseSummary($course, $user));
+            ->map(fn($course) => $this->formatCourseSummary($course, $user));
     }
     
     /**
-     * Format course for dashboard summary (lightweight version)
-     * 
-     * @param  \App\Models\Course  $course
-     * @param  \App\Models\User  $user
-     * @return array
+     * Format course for dashboard summary (lightweight)
      */
     private function formatCourseSummary($course, $user): array
     {
         $meetings = $course->meetings;
         
-        // ✅ FIXED: Same fix as formatCourseWithProgress - include quiz/final meetings
-        $lessons = $meetings->filter(fn ($m) => 
-            $m->content !== null || in_array($m->type, ['quiz', 'final'])
-        );
+        // ✅ Use SAME robust filter as formatCourseWithProgress
+        $lessons = $meetings->filter(fn($m) => $this->isLesson($m));
         
+        $lessonIds = $lessons->pluck('id');
         $completed = UserProgress::where('user_id', $user->id)
             ->where('is_completed', true)
-            ->whereIn('meeting_id', $lessons->pluck('id'))
+            ->whereIn('meeting_id', $lessonIds)
             ->count();
         
         $total = $lessons->count();
         $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
+        
+        // 🔍 Debug logging (remove after fix)
+        Log::info('Progress Debug - formatCourseSummary', [
+            'course_id' => $course->id,
+            'course_title' => $course->title,
+            'user_id' => $user->id,
+            'total_meetings' => $meetings->count(),
+            'filtered_lessons_count' => $total,
+            'filtered_lesson_ids' => $lessonIds->toArray(),
+            'completed_count' => $completed,
+            'progress' => $progress,
+        ]);
         
         return [
             'id' => $course->id,
@@ -253,23 +270,21 @@ class UserController extends Controller
             'progress' => $progress,
             'thumbnail' => $course->thumbnail,
             'total_lessons' => $total,
-            'completed_lessons' => $completed
+            'completed_lessons' => $completed,
+            'is_completed' => (int) $progress === 100,
         ];
     }
     
     /**
-     * Get available courses for enrollment (not yet enrolled)
-     * 
-     * @param  \App\Models\User  $user
-     * @return \Illuminate\Support\Collection
+     * Get available courses for enrollment
      */
     private function getAvailableCourses($user)
     {
         $enrolledIds = $user->enrolledCourses()->pluck('courses.id');
         
         return Course::whereNotIn('courses.id', $enrolledIds)
-        ->select('courses.id', 'courses.title', 'courses.description', 'courses.instructor', 'courses.thumbnail')
-        ->limit(3)
-        ->get();
+            ->select('courses.id', 'courses.title', 'courses.description', 'courses.instructor', 'courses.thumbnail')
+            ->limit(3)
+            ->get();
     }
 }

@@ -1,4 +1,11 @@
 <?php
+/**
+ * Quiz Controller
+ * 
+ * Handles quiz display and submission for users.
+ * 
+ * @package App\Http\Controllers\Api
+ */
 
 namespace App\Http\Controllers\Api;
 
@@ -7,6 +14,9 @@ use App\Models\Quiz;
 use App\Models\QuizQuestion;
 use App\Models\QuizAttempt;
 use App\Models\UserProgress;
+use App\Models\Certificate;
+use App\Models\Enrollment;
+use App\Models\Meeting;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -16,16 +26,30 @@ use Illuminate\Support\Facades\DB;
 class QuizController extends Controller
 {
     /**
-     * GET: Ambil soal kuis (tanpa kunci jawaban)
+     * GET: Ambil soal kuis (tanpa kunci jawaban) - DEBUG VERSION
+     * 
+     * Endpoint: GET /api/quizzes/{quizId}
+     * 
+     * @param  int  $quizId
+     * @return JsonResponse
      */
     public function show($quizId): JsonResponse
     {
         try {
+            // ✅ DEBUG: Log request masuk
+            Log::info('🔍 QuizController@show called', [
+                'requested_quiz_id' => $quizId,
+                'user_id' => Auth::id(),
+                'timestamp' => now(),
+            ]);
+
+            // Fetch quiz with questions (ordered by 'order' field)
             $quiz = Quiz::with(['questions' => function ($query) {
-                $query->select('id', 'quiz_id', 'question', 'type', 'options', 'points', 'order');
+                $query->select('id', 'quiz_id', 'question', 'type', 'options', 'points', 'order')
+                      ->orderBy('order', 'asc');
             }])->findOrFail($quizId);
 
-            // Parse options safely dari JSON string ke array
+            // Parse options: JSON string → array (for frontend safety)
             foreach ($quiz->questions as $q) {
                 if (is_string($q->options ?? null)) {
                     $decoded = @json_decode($q->options, true);
@@ -35,20 +59,61 @@ class QuizController extends Controller
                 }
             }
 
+            // ✅ DEBUG: Log response sebelum dikirim ke frontend
+            Log::info('📤 QuizController@show response', [
+                'quiz_id' => $quiz->id,
+                'quiz_title' => $quiz->title,
+                'meeting_id' => $quiz->meeting_id,
+                'questions_count' => $quiz->questions->count(),
+                'questions_preview' => $quiz->questions->take(3)->map(function($q) {
+                    return [
+                        'id' => $q->id,
+                        'question' => substr($q->question, 0, 50) . '...',
+                        'order' => $q->order,
+                        'options_count' => is_array($q->options) ? count($q->options) : 0,
+                    ];
+                }),
+            ]);
+
             return response()->json($quiz);
+            
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            Log::error('❌ Quiz not found', [
+                'requested_quiz_id' => $quizId,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message' => 'Quiz not found',
+                'debug' => config('app.debug') ? 'Quiz ID ' . $quizId . ' does not exist in quizzes table' : null
+            ], 404);
+            
         } catch (\Throwable $e) {
-            Log::error('Quiz show error: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load quiz'], 500);
+            Log::error('❌ QuizController@show error: ' . $e->getMessage(), [
+                'requested_quiz_id' => $quizId,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => config('app.debug') ? $e->getTraceAsString() : null,
+            ]);
+            return response()->json([
+                'message' => 'Failed to load quiz',
+                'debug' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         }
     }
 
     /**
-     * POST: Submit jawaban → Auto-Grade → Update Progress
+     * POST: Submit jawaban → Auto-Grade → Update Progress → Auto-Check Certificate
+     * 
+     * Endpoint: POST /api/quizzes/{quizId}/submit
+     * 
+     * @param  Request  $request
+     * @param  int  $quizId
+     * @return JsonResponse
      */
     public function submit(Request $request, $quizId): JsonResponse
     {
         try {
-            // 🔍 DEBUG LOG: Cek authentication & headers
+            // 🔍 DEBUG: Cek authentication & headers
             $user = Auth::user();
             $hasAuthHeader = $request->headers->has('Authorization');
             $authHeader = $request->headers->get('Authorization');
@@ -117,7 +182,7 @@ class QuizController extends Controller
             $passingScore = $quiz->passing_score ?? 70;
             $passed = $score >= $passingScore;
 
-            // 7. Simpan attempt - ✅ FIX: Hitung attempt_number dengan lebih aman
+            // 7. Simpan attempt
             $previousAttempts = QuizAttempt::where('user_id', $user->id)
                 ->where('quiz_id', $quiz->id)
                 ->count();
@@ -127,50 +192,55 @@ class QuizController extends Controller
                 'quiz_id' => $quiz->id,
                 'score' => $score,
                 'passed' => $passed,
-                'answers' => json_encode($answers), // ✅ Encode ke JSON string untuk konsistensi
+                'answers' => json_encode($answers),
                 'attempt_number' => $previousAttempts + 1,
             ]);
 
-            // 8. Update progress - PAKAI meeting_id LANGSUNG (paling aman!)
-                    // 8. Update progress - DEBUG VERSION
-        $meetingId = $quiz->meeting_id ?? null;
-        
-        // Fallback ambil dari DB jika model belum load
-        if (!$meetingId) {
-            $meetingId = DB::table('quizzes')->where('id', $quiz->id)->value('meeting_id');
-        }
+            // 8. Update progress
+            $meetingId = $quiz->meeting_id ?? null;
+            
+            // Fallback ambil dari DB jika model belum load
+            if (!$meetingId) {
+                $meetingId = DB::table('quizzes')->where('id', $quiz->id)->value('meeting_id');
+            }
 
-        Log::info('🔍 DEBUG: Progress Save Check', [
-            'passed' => $passed,
-            'meeting_id' => $meetingId,
-            'user_id' => $user->id,
-        ]);
+            Log::info('🔍 DEBUG: Progress Save Check', [
+                'passed' => $passed,
+                'meeting_id' => $meetingId,
+                'user_id' => $user->id,
+            ]);
 
-        if ($passed && $meetingId) {
-            DB::table('user_progress')->updateOrInsert(
-                ['user_id' => $user->id, 'meeting_id' => $meetingId],
-                [
-                    'is_completed' => 1,
-                    'completed_at' => now(),
-                    'updated_at' => now()
-                ]
-            );
-            Log::info('✅ SUCCESS: Progress saved to DB');
-        } else {
-            Log::warning('⚠️ SKIPPED: Progress save skipped (passed=' . ($passed ? 'true' : 'false') . ', meetingId=' . ($meetingId ?? 'null') . ')');
-        }
+            if ($passed && $meetingId) {
+                DB::table('user_progress')->updateOrInsert(
+                    ['user_id' => $user->id, 'meeting_id' => $meetingId],
+                    [
+                        'is_completed' => 1,
+                        'completed_at' => now(),
+                        'updated_at' => now()
+                    ]
+                );
+                Log::info('✅ SUCCESS: Progress saved to DB');
+            } else {
+                Log::warning('⚠️ SKIPPED: Progress save skipped (passed=' . ($passed ? 'true' : 'false') . ', meetingId=' . ($meetingId ?? 'null') . ')');
+            }
 
-            // 9. Return hasil - ✅ Tambah field course_id untuk frontend
+            // ✅ AUTO-GENERATE CERTIFICATE CHECK
+            $courseId = $quiz->meeting->course_id ?? null;
+            if ($courseId) {
+                $this->checkAndGenerateCertificate($user->id, $courseId);
+            }
+
+            // 9. Return hasil
             return response()->json([
-                'success' => true, // ✅ Tambah field ini agar frontend mudah cek
+                'success' => true,
                 'message' => $passed 
                     ? '🎉 Selamat! Kamu lulus kuis ini.' 
                     : '❌ Skor belum memenuhi batas kelulusan. Coba lagi!',
                 'score' => $score,
                 'passed' => $passed,
                 'passing_score' => $passingScore,
-                'course_id' => $quiz->meeting->course_id ?? null, // ✅ Tambah untuk frontend
-                'meeting_id' => $meetingId, // ✅ Tambah untuk frontend
+                'course_id' => $courseId,
+                'meeting_id' => $meetingId,
                 'attempt' => [
                     'id' => $attempt->id ?? null,
                     'attempt_number' => $attempt->attempt_number ?? 1,
@@ -189,6 +259,75 @@ class QuizController extends Controller
                 'message' => 'Server error processing quiz',
                 'debug' => config('app.debug') ? $e->getMessage() : null
             ], 500);
+        }
+    }
+
+    /**
+     * ✅ HELPER: Auto-Generate Certificate setelah course completed
+     * 
+     * @param  int  $userId
+     * @param  int  $courseId
+     * @return void
+     */
+    private function checkAndGenerateCertificate(int $userId, int $courseId): void
+    {
+        try {
+            // 1. Get all lesson IDs for this course
+            $lessonIds = Meeting::where('course_id', $courseId)
+                ->where(function($q) {
+                    $q->whereNotNull('content')
+                      ->orWhereIn('type', ['quiz', 'final', 'test'])
+                      ->orWhere('has_test', 1)
+                      ->orWhere('is_final_test', 1);
+                })
+                ->pluck('id')
+                ->toArray();
+            
+            if (empty($lessonIds)) return;
+            
+            // 2. Get completed lesson IDs for this user
+            $completedIds = UserProgress::where('user_id', $userId)
+                ->where('is_completed', true)
+                ->whereIn('meeting_id', $lessonIds)
+                ->pluck('meeting_id')
+                ->toArray();
+            
+            // 3. Check if ALL lessons completed
+            if (count($completedIds) >= count($lessonIds)) {
+                
+                // 4. Update enrollment completed_at
+                Enrollment::updateOrCreate(
+                    ['user_id' => $userId, 'course_id' => $courseId],
+                    ['completed_at' => now()]
+                );
+                
+                // 5. Generate certificate record if not exists
+                $certExists = Certificate::where('user_id', $userId)
+                    ->where('course_id', $courseId)
+                    ->exists();
+                
+                if (!$certExists) {
+                    Certificate::create([
+                        'user_id' => $userId,
+                        'course_id' => $courseId,
+                        'certificate_number' => Certificate::generateCertificateNumber(),
+                        'file_path' => 'generated_on_demand.pdf',
+                        'verification_code' => Certificate::generateVerificationCode(),
+                        'issued_at' => now(),
+                    ]);
+                    
+                    Log::info("🎉 Certificate auto-generated", [
+                        'user_id' => $userId,
+                        'course_id' => $courseId,
+                    ]);
+                }
+            }
+            
+        } catch (\Exception $e) {
+            Log::error("Auto-certificate check failed: " . $e->getMessage(), [
+                'user_id' => $userId,
+                'course_id' => $courseId,
+            ]);
         }
     }
 }
