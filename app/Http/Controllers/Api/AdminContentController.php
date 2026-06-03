@@ -69,7 +69,7 @@ class AdminContentController extends Controller
         }
     }
 
-    /**
+         /**
      * PUT: Update meeting/lesson
      * Endpoint: PUT /api/admin/content/{id}
      */
@@ -80,23 +80,46 @@ class AdminContentController extends Controller
             
             $meeting = Meeting::findOrFail($id);
             
+            // ✅ PERBAIKAN: Terima semua tipe yang valid termasuk 'lesson'
             $validated = $request->validate([
                 'title' => 'sometimes|required|string|max:255',
-                'type' => 'sometimes|required|in:normal,test,final',
-                'content' => 'nullable|url',
+                'type' => 'sometimes|required|in:normal,lesson,test,final',
+                'content' => 'nullable|string',
                 'order_number' => 'sometimes|required|integer|min:1',
             ]);
+            
+            // ✅ NORMALISASI: Ubah 'lesson' jadi 'normal' untuk database
+            if (isset($validated['type'])) {
+                if ($validated['type'] === 'lesson') {
+                    $validated['type'] = 'normal';
+                }
+                // 'meeting' juga jadi 'normal'
+                if ($validated['type'] === 'meeting') {
+                    $validated['type'] = 'normal';
+                }
+            }
             
             $meeting->update($validated);
             
             return response()->json([
-                'message' => 'Content updated',
+                'success' => true,
+                'message' => 'Content berhasil diupdate!',
                 'meeting' => $meeting
             ]);
             
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Validation error: ' . json_encode($e->errors()));
+            return response()->json([
+                'success' => false,
+                'message' => 'Validasi gagal', 
+                'errors' => $e->errors()
+            ], 422);
         } catch (\Exception $e) {
             Log::error('AdminContentController@update: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to update content'], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update content: ' . $e->getMessage()
+            ], 500);
         }
     }
 

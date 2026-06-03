@@ -1,11 +1,4 @@
 <?php
-/**
- * Admin Quiz Controller
- * 
- * Handles management of quiz questions for admin/instructor users.
- * 
- * @package App\Http\Controllers\Api
- */
 
 namespace App\Http\Controllers\Api;
 
@@ -19,34 +12,28 @@ use Illuminate\Support\Facades\Log;
 class AdminQuizController extends Controller
 {
     /**
-     * Helper: Pastikan user adalah admin
-     * 
-     * @throws \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException
+     * Helper: Cek apakah user adalah admin.
+     * Mengembalikan JsonResponse jika gagal, sehingga TIDAK PERNAH redirect ke halaman login HTML.
      */
-    private function ensureAdmin(): void
+    private function checkAdmin(): ?JsonResponse
     {
         $user = Auth::user();
         if (!$user || $user->role !== 'admin') {
-            throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('Admin privileges required');
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Admin privileges required.'
+            ], 403);
         }
+        return null; // Null berarti sukses (user adalah admin)
     }
 
-    /**
-     * POST: Tambah soal baru ke quiz tertentu
-     * 
-     * Endpoint: POST /api/admin/quizzes/{quizId}/questions
-     * 
-     * @param  Request  $request
-     * @param  int  $quizId
-     * @return JsonResponse
-     */
     public function addQuestion(Request $request, $quizId): JsonResponse
     {
-        try {
-            // 1. Pastikan user adalah admin
-            $this->ensureAdmin();
+        // 1. Cek admin (akan return JSON 403 jika bukan admin, menghentikan eksekusi lebih lanjut)
+        $adminCheck = $this->checkAdmin();
+        if ($adminCheck) return $adminCheck;
 
-            // 2. Validasi input dari admin
+        try {
             $validated = $request->validate([
                 'question'       => 'required|string|max:1000',
                 'type'           => 'required|string|in:multiple_choice,true_false,short_answer',
@@ -57,21 +44,18 @@ class AdminQuizController extends Controller
                 'order'          => 'nullable|integer|min:0',
             ]);
 
-            // 3. Siapkan data untuk disimpan
             $questionData = [
                 'quiz_id'        => $quizId,
                 'question'       => $validated['question'],
                 'type'           => $validated['type'],
-                'options'        => json_encode($validated['options']), // Simpan sebagai JSON string
+                'options'        => json_encode($validated['options']),
                 'correct_answer' => $validated['correct_answer'],
-                'points'         => $validated['points'] ?? 1,
+                'points'         => $validated['points'] ?? 10,
                 'order'          => $validated['order'] ?? 0,
             ];
 
-            // 4. Simpan ke database
             $newQuestion = QuizQuestion::create($questionData);
 
-            // 5. Return response sukses
             return response()->json([
                 'success' => true,
                 'message' => 'Soal berhasil ditambahkan!',
@@ -79,20 +63,87 @@ class AdminQuizController extends Controller
             ], 201);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
-            // Error validasi (data tidak lengkap/salah format)
             return response()->json([
                 'success' => false,
                 'message' => 'Validasi gagal',
                 'errors' => $e->errors()
             ], 422);
-
         } catch (\Exception $e) {
-            // Error sistem/database
-            Log::error('AdminQuizController@addQuestion: ' . $e->getMessage());
+            Log::error('AdminQuizController@addQuestion error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal menyimpan soal. Silakan coba lagi.'
+                'message' => 'Gagal menyimpan soal. ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    public function editQuestion(Request $request, int $questionId): JsonResponse
+    {
+        $adminCheck = $this->checkAdmin();
+        if ($adminCheck) return $adminCheck;
+
+        try {
+            $question = QuizQuestion::find($questionId);
+
+            if (!$question) {
+                return response()->json(['success' => false, 'message' => 'Soal tidak ditemukan.'], 404);
+            }
+
+            $validated = $request->validate([
+                'question'       => 'required|string|max:1000',
+                'type'           => 'required|string|in:multiple_choice,true_false,short_answer',
+                'options'        => 'required|array|min:2',
+                'options.*'      => 'required|string|max:255',
+                'correct_answer' => 'required|string',
+                'points'         => 'nullable|integer|min:1',
+                'order'          => 'nullable|integer|min:0',
+            ]);
+
+            $question->update([
+                'question'       => $validated['question'],
+                'type'           => $validated['type'],
+                'options'        => json_encode($validated['options']),
+                'correct_answer' => $validated['correct_answer'],
+                'points'         => $validated['points'] ?? 10,
+                'order'          => $validated['order'] ?? 0,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Soal berhasil diperbarui!',
+                'question' => $question
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validasi gagal', 'errors' => $e->errors()], 422);
+        } catch (\Throwable $e) {
+            Log::error('AdminQuizController@editQuestion error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Gagal mengedit soal. ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function deleteQuestion(int $questionId): JsonResponse
+    {
+        $adminCheck = $this->checkAdmin();
+        if ($adminCheck) return $adminCheck;
+
+        try {
+            $question = QuizQuestion::find($questionId);
+
+            if (!$question) {
+                return response()->json(['success' => false, 'message' => 'Soal tidak ditemukan.'], 404);
+            }
+
+            $question->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Soal berhasil dihapus dari database.'
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('AdminQuizController@deleteQuestion error: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Gagal menghapus soal. ' . $e->getMessage()], 500);
         }
     }
 }

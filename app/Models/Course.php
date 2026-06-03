@@ -10,9 +10,11 @@ class Course extends Model
         'title',
         'description',
         'instructor',
-        'price',
+        'thumbnail',
+        'category',
         'level',
-        'thumbnail'
+        'duration',
+        
     ];
 
     // RELATIONSHIP

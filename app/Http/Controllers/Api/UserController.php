@@ -23,8 +23,6 @@ class UserController extends Controller
      * Get courses that user is enrolled in (with progress calculation)
      * 
      * GET /api/user/enrolled-courses
-     * 
-     * @return JsonResponse
      */
     public function getEnrolledCourses(): JsonResponse
     {
@@ -130,18 +128,15 @@ class UserController extends Controller
      */
     private function isLesson($meeting): bool
     {
-        // Include if has content
         if ($meeting->content !== null && $meeting->content !== '') {
             return true;
         }
         
-        // Include if it's a quiz/test/final (case-insensitive)
         $type = strtolower($meeting->type ?? '');
         if (in_array($type, ['quiz', 'final', 'test', 'quiz_assessment', 'assessment'])) {
             return true;
         }
         
-        // Include if marked as has_test or is_final_test (fallback)
         if (!empty($meeting->has_test) || !empty($meeting->is_final_test)) {
             return true;
         }
@@ -151,38 +146,22 @@ class UserController extends Controller
     
     /**
      * Format course data with progress calculation
+     * ✅ FIXED: Added category, level, duration
      */
     private function formatCourseWithProgress($course, $user): array
     {
         $meetings = $course->meetings;
-        
-        // ✅ Use robust filter
         $lessons = $meetings->filter(fn($m) => $this->isLesson($m));
         
-        // Get completed lesson IDs
         $lessonIds = $lessons->pluck('id');
         $completedIds = UserProgress::where('user_id', $user->id)
             ->where('is_completed', true)
             ->whereIn('meeting_id', $lessonIds)
             ->pluck('meeting_id');
         
-        // Calculate progress
         $total = $lessons->count();
         $completed = $lessons->filter(fn($m) => $completedIds->contains($m->id))->count();
         $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
-        
-        // 🔍 Debug logging (remove after fix)
-        Log::info('Progress Debug - formatCourseWithProgress', [
-            'course_id' => $course->id,
-            'course_title' => $course->title,
-            'user_id' => $user->id,
-            'total_meetings' => $meetings->count(),
-            'filtered_lessons_count' => $total,
-            'filtered_lesson_ids' => $lessonIds->toArray(),
-            'completed_ids' => $completedIds->toArray(),
-            'completed_count' => $completed,
-            'progress' => $progress,
-        ]);
         
         $nextLesson = $lessons->first(fn($m) => !$completedIds->contains($m->id)) ?? $lessons->last();
         
@@ -192,6 +171,9 @@ class UserController extends Controller
             'description' => $course->description,
             'instructor' => $course->instructor,
             'thumbnail' => $course->thumbnail,
+            'category' => $course->category,       // ✅ NEW
+            'level' => $course->level,             // ✅ NEW
+            'duration' => $course->duration,       // ✅ NEW
             'enrolled_at' => $course->pivot->enrolled_at,
             'progress' => $progress,
             'total_lessons' => $total,
@@ -235,12 +217,11 @@ class UserController extends Controller
     
     /**
      * Format course for dashboard summary (lightweight)
+     * ✅ FIXED: Added category, level, duration, instructor, description
      */
     private function formatCourseSummary($course, $user): array
     {
         $meetings = $course->meetings;
-        
-        // ✅ Use SAME robust filter as formatCourseWithProgress
         $lessons = $meetings->filter(fn($m) => $this->isLesson($m));
         
         $lessonIds = $lessons->pluck('id');
@@ -252,23 +233,16 @@ class UserController extends Controller
         $total = $lessons->count();
         $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
         
-        // 🔍 Debug logging (remove after fix)
-        Log::info('Progress Debug - formatCourseSummary', [
-            'course_id' => $course->id,
-            'course_title' => $course->title,
-            'user_id' => $user->id,
-            'total_meetings' => $meetings->count(),
-            'filtered_lessons_count' => $total,
-            'filtered_lesson_ids' => $lessonIds->toArray(),
-            'completed_count' => $completed,
-            'progress' => $progress,
-        ]);
-        
         return [
             'id' => $course->id,
             'title' => $course->title,
-            'progress' => $progress,
+            'description' => $course->description,       // ✅ NEW
+            'instructor' => $course->instructor,         // ✅ NEW
             'thumbnail' => $course->thumbnail,
+            'category' => $course->category,             // ✅ NEW
+            'level' => $course->level,                   // ✅ NEW
+            'duration' => $course->duration,             // ✅ NEW
+            'progress' => $progress,
             'total_lessons' => $total,
             'completed_lessons' => $completed,
             'is_completed' => (int) $progress === 100,
@@ -277,14 +251,24 @@ class UserController extends Controller
     
     /**
      * Get available courses for enrollment
+     * ✅ FIXED: Added category, level, duration
      */
     private function getAvailableCourses($user)
     {
         $enrolledIds = $user->enrolledCourses()->pluck('courses.id');
         
         return Course::whereNotIn('courses.id', $enrolledIds)
-            ->select('courses.id', 'courses.title', 'courses.description', 'courses.instructor', 'courses.thumbnail')
-            ->limit(3)
+            ->select(
+                'courses.id', 
+                'courses.title', 
+                'courses.description', 
+                'courses.instructor', 
+                'courses.thumbnail',
+                'courses.category',    // ✅ NEW
+                'courses.level',       // ✅ NEW
+                'courses.duration'     // ✅ NEW
+            )
+            ->limit(6)
             ->get();
     }
 }
