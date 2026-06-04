@@ -17,12 +17,6 @@ use App\Http\Controllers\Api\UserController;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes - SpeakOut E-Course
-|--------------------------------------------------------------------------
-*/
-
-/*
-|--------------------------------------------------------------------------
 | 🌐 PUBLIC ROUTES (No Auth Required)
 |--------------------------------------------------------------------------
 */
@@ -65,12 +59,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/courses/{courseId}/check-completion', [CourseProgressController::class, 'checkCourseCompletion']);
 
     // ================= QUIZ SYSTEM (User) =================
-    // Ambil soal quiz (tanpa kunci jawaban)
+    // ✅ HAPUS DUPLIKAT DI SINI - Cukup definisi sekali saja
     Route::get('/quizzes/{quizId}', [QuizController::class, 'show']);
-    
-    // Submit jawaban & auto-grade
     Route::post('/quizzes/{quizId}/submit', [QuizController::class, 'submit']);
-    
+
     // ================= DEBUG (Remove in Production) =================
     Route::get('/debug/whoami', fn(Request $request) => response()->json([
         'id' => $request->user()->id,
@@ -80,7 +72,7 @@ Route::middleware('auth:sanctum')->group(function () {
         'enrolled_count' => $request->user()->enrolledCourses()->count()
     ]));
 
-}); // ← ✅ TUTUP GROUP auth:sanctum DI SINI
+}); // ← ✅ TUTUP GROUP auth:sanctum
 
 
 /*
@@ -110,14 +102,9 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::put('/content/{id}', [AdminContentController::class, 'update']);
     Route::delete('/content/{id}', [AdminContentController::class, 'destroy']);
 
-        // ================= QUIZ MANAGEMENT (Admin) =================
-    // 1. Tambah soal quiz
+    // ================= QUIZ MANAGEMENT (Admin) =================
     Route::post('/quizzes/{quizId}/questions', [AdminQuizController::class, 'addQuestion']);
-    
-    // 2. Edit soal quiz (BARU DITAMBAHKAN)
     Route::put('/quizzes/questions/{questionId}', [AdminQuizController::class, 'editQuestion']);
-    
-    // 3. Hapus soal quiz
     Route::delete('/quizzes/questions/{questionId}', [AdminQuizController::class, 'deleteQuestion']);
 
     // 4. List all quizzes untuk dropdown
@@ -137,8 +124,7 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     // ================= QUIZ ATTEMPTS MONITORING =================
     Route::get('/quiz-attempts', [AdminController::class, 'getQuizAttempts']);
 
-}); // ← ✅ TUTUP GROUP admin DI SINI
-
+}); // ← ✅ TUTUP GROUP admin
 
 
 /*

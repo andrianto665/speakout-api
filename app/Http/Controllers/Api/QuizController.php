@@ -34,72 +34,68 @@ class QuizController extends Controller
      * @return JsonResponse
      */
     public function show($quizId): JsonResponse
-    {
-        try {
-            // ✅ DEBUG: Log request masuk
-            Log::info('🔍 QuizController@show called', [
-                'requested_quiz_id' => $quizId,
-                'user_id' => Auth::id(),
-                'timestamp' => now(),
-            ]);
+{
+    try {
+        Log::info('🔍 QuizController@show called', [
+            'requested_quiz_id' => $quizId,
+            'user_id' => Auth::id(),
+        ]);
 
-            // Fetch quiz with questions (ordered by 'order' field)
-            $quiz = Quiz::with(['questions' => function ($query) {
-                $query->select('id', 'quiz_id', 'question', 'type', 'options', 'points', 'order')
-                      ->orderBy('order', 'asc');
-            }])->findOrFail($quizId);
+        // ✅ Load quiz dengan relationships - PERBAIKAN
+        $quiz = Quiz::with([
+            'questions' => function ($query) {
+                $query->orderBy('order', 'asc')
+                      ->orderBy('id', 'asc'); // ✅ Secondary sort by ID
+            },
+            'meeting',
+            'meeting.course'
+        ])->findOrFail($quizId);
 
-            // Parse options: JSON string → array (for frontend safety)
-            foreach ($quiz->questions as $q) {
-                if (is_string($q->options ?? null)) {
-                    $decoded = @json_decode($q->options, true);
-                    if ($decoded !== null && json_last_error() === JSON_ERROR_NONE) {
-                        $q->options = $decoded;
-                    }
+        // ✅ Parse options: JSON string → array
+        foreach ($quiz->questions as $q) {
+            if (is_string($q->options ?? null)) {
+                $decoded = @json_decode($q->options, true);
+                if ($decoded !== null && json_last_error() === JSON_ERROR_NONE) {
+                    $q->options = $decoded;
                 }
             }
-
-            // ✅ DEBUG: Log response sebelum dikirim ke frontend
-            Log::info('📤 QuizController@show response', [
-                'quiz_id' => $quiz->id,
-                'quiz_title' => $quiz->title,
-                'meeting_id' => $quiz->meeting_id,
-                'questions_count' => $quiz->questions->count(),
-                'questions_preview' => $quiz->questions->take(3)->map(function($q) {
-                    return [
-                        'id' => $q->id,
-                        'question' => substr($q->question, 0, 50) . '...',
-                        'order' => $q->order,
-                        'options_count' => is_array($q->options) ? count($q->options) : 0,
-                    ];
-                }),
-            ]);
-
-            return response()->json($quiz);
-            
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            Log::error('❌ Quiz not found', [
-                'requested_quiz_id' => $quizId,
-                'error' => $e->getMessage(),
-            ]);
-            return response()->json([
-                'message' => 'Quiz not found',
-                'debug' => config('app.debug') ? 'Quiz ID ' . $quizId . ' does not exist in quizzes table' : null
-            ], 404);
-            
-        } catch (\Throwable $e) {
-            Log::error('❌ QuizController@show error: ' . $e->getMessage(), [
-                'requested_quiz_id' => $quizId,
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => config('app.debug') ? $e->getTraceAsString() : null,
-            ]);
-            return response()->json([
-                'message' => 'Failed to load quiz',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
+            // ✅ Hapus correct_answer dari response (security)
+            unset($q->correct_answer);
         }
+
+        // ✅ Tambahkan info course dan meeting ke response
+        $responseData = $quiz->toArray();
+        $responseData['course_id'] = $quiz->meeting?->course_id;
+        $responseData['course_title'] = $quiz->meeting?->course?->title;
+        $responseData['total_questions'] = $quiz->questions->count();
+
+        Log::info('📤 Quiz loaded successfully', [
+            'quiz_id' => $quiz->id,
+            'quiz_title' => $quiz->title,
+            'course_id' => $responseData['course_id'],
+            'questions_count' => $responseData['total_questions'],
+        ]);
+
+        return response()->json($responseData);
+        
+    } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+        return response()->json([
+            'message' => 'Quiz not found',
+            'debug' => config('app.debug') ? 'Quiz ID ' . $quizId . ' does not exist' : null
+        ], 404);
+        
+    } catch (\Throwable $e) {
+        Log::error('❌ QuizController@show error', [
+            'quiz_id' => $quizId,
+            'error' => $e->getMessage(),
+        ]);
+        
+        return response()->json([
+            'message' => 'Failed to load quiz',
+            'debug' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
+}
 
     /**
      * POST: Submit jawaban → Auto-Grade → Update Progress → Auto-Check Certificate
@@ -263,71 +259,81 @@ class QuizController extends Controller
     }
 
     /**
-     * ✅ HELPER: Auto-Generate Certificate setelah course completed
-     * 
-     * @param  int  $userId
-     * @param  int  $courseId
-     * @return void
-     */
-    private function checkAndGenerateCertificate(int $userId, int $courseId): void
-    {
-        try {
-            // 1. Get all lesson IDs for this course
-            $lessonIds = Meeting::where('course_id', $courseId)
-                ->where(function($q) {
-                    $q->whereNotNull('content')
-                      ->orWhereIn('type', ['quiz', 'final', 'test'])
-                      ->orWhere('has_test', 1)
-                      ->orWhere('is_final_test', 1);
-                })
-                ->pluck('id')
-                ->toArray();
-            
-            if (empty($lessonIds)) return;
-            
-            // 2. Get completed lesson IDs for this user
-            $completedIds = UserProgress::where('user_id', $userId)
-                ->where('is_completed', true)
-                ->whereIn('meeting_id', $lessonIds)
-                ->pluck('meeting_id')
-                ->toArray();
-            
-            // 3. Check if ALL lessons completed
-            if (count($completedIds) >= count($lessonIds)) {
-                
-                // 4. Update enrollment completed_at
-                Enrollment::updateOrCreate(
-                    ['user_id' => $userId, 'course_id' => $courseId],
-                    ['completed_at' => now()]
-                );
-                
-                // 5. Generate certificate record if not exists
-                $certExists = Certificate::where('user_id', $userId)
-                    ->where('course_id', $courseId)
-                    ->exists();
-                
-                if (!$certExists) {
-                    Certificate::create([
-                        'user_id' => $userId,
-                        'course_id' => $courseId,
-                        'certificate_number' => Certificate::generateCertificateNumber(),
-                        'file_path' => 'generated_on_demand.pdf',
-                        'verification_code' => Certificate::generateVerificationCode(),
-                        'issued_at' => now(),
-                    ]);
-                    
-                    Log::info("🎉 Certificate auto-generated", [
-                        'user_id' => $userId,
-                        'course_id' => $courseId,
-                    ]);
-                }
-            }
-            
-        } catch (\Exception $e) {
-            Log::error("Auto-certificate check failed: " . $e->getMessage(), [
-                'user_id' => $userId,
-                'course_id' => $courseId,
-            ]);
+ * HELPER: Auto-Generate Certificate setelah course completed
+ */
+private function checkAndGenerateCertificate(int $userId, int $courseId): void
+{
+    try {
+        // 1. Get all lesson IDs for this course
+        $lessonIds = Meeting::where('course_id', $courseId)
+            ->where(function($q) {
+                $q->whereNotNull('content')
+                  ->orWhereIn('type', ['quiz', 'final', 'test'])
+                  ->orWhere('has_test', 1)
+                  ->orWhere('is_final_test', 1);
+            })
+            ->pluck('id')
+            ->toArray();
+        
+        if (empty($lessonIds)) {
+            Log::warning('⚠️ No lessons found for course', ['course_id' => $courseId]);
+            return;
         }
+        
+        // 2. Get completed lesson IDs for this user
+        $completedIds = UserProgress::where('user_id', $userId)
+            ->where('is_completed', true)
+            ->whereIn('meeting_id', $lessonIds)
+            ->pluck('meeting_id')
+            ->toArray();
+        
+        // 3. Check if ALL lessons completed
+        $totalLessons = count($lessonIds);
+        $completedLessons = count($completedIds);
+        
+        Log::info('🔍 Certificate check', [
+            'user_id' => $userId,
+            'course_id' => $courseId,
+            'total_lessons' => $totalLessons,
+            'completed_lessons' => $completedLessons,
+        ]);
+        
+        if ($completedLessons >= $totalLessons) {
+            
+            // 4. Update enrollment completed_at
+            Enrollment::updateOrCreate(
+                ['user_id' => $userId, 'course_id' => $courseId],
+                ['completed_at' => now()]
+            );
+            
+            // 5. ✅ PERBAIKAN: Generate certificate record if not exists
+            $certExists = Certificate::where('user_id', $userId)
+                ->where('course_id', $courseId)  // ✅ Pakai koma, bukan =>
+                ->exists();
+            
+            if (!$certExists) {
+                Certificate::create([
+                    'user_id' => $userId,
+                    'course_id' => $courseId,
+                    'certificate_number' => Certificate::generateCertificateNumber(),
+                    'file_path' => 'generated_on_demand.pdf',
+                    'verification_code' => Certificate::generateVerificationCode(),
+                    'issued_at' => now(),
+                ]);
+                
+                Log::info("🎉 Certificate auto-generated", [
+                    'user_id' => $userId,
+                    'course_id' => $courseId,
+                ]);
+            }
+        }
+        
+    } catch (\Exception $e) {
+        Log::error("❌ Auto-certificate check failed", [
+            'user_id' => $userId,
+            'course_id' => $courseId,
+            'error' => $e->getMessage(),
+        ]);
     }
+}
 }
