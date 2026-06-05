@@ -17,22 +17,25 @@ class CourseController extends Controller
      * GET /api/courses
      */
     public function index()
-    {
-        $courses = Course::withCount('meetings')->get()->map(function($course) {
-            return [
-                'id' => $course->id,
-                'title' => $course->title,
-                'description' => $course->description,
-                'instructor' => $course->instructor,
-                'thumbnail' => $course->thumbnail,
-                'total_lessons' => $course->meetings_count,
-                'created_at' => $course->created_at,
-                'updated_at' => $course->updated_at,
-            ];
-        });
-
-        return response()->json($courses);
-    }
+{
+    $courses = Course::withCount(['meetings as total_lessons' => fn($q) => $q->whereNotNull('content')])
+        ->select(
+            'id', 
+            'title', 
+            'description', 
+            'instructor', 
+            'thumbnail', 
+            'category',      // ✅ TAMBAHKAN
+            'level',         // ✅ TAMBAHKAN
+            'price',         // ✅ TAMBAHKAN
+            'duration',      // ✅ TAMBAHKAN
+            'created_at',
+            'updated_at'
+        )
+        ->get();
+    
+    return response()->json($courses);
+}
 
     /**
      * Display course details with meetings (requires auth for enrolled content)

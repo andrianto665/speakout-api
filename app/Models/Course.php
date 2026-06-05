@@ -10,13 +10,14 @@ class Course extends Model
         'title',
         'description',
         'instructor',
-        'thumbnail',
         'category',
         'level',
-        'duration',
-        
+        'price',        // ✅ PASTIKAN ADA
+        'duration',     // ✅ PASTIKAN ADA
+        'thumbnail',
+        'status',
     ];
-
+    
     // RELATIONSHIP
     public function lessons()
     {

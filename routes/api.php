@@ -3,7 +3,8 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
-// ================= CONTROLLERS =================
+// ✅ Import semua controller
+use App\Http\Controllers\Api\AdminCertificateController;
 use App\Http\Controllers\Api\AdminContentController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AdminQuizController;
@@ -50,8 +51,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/enroll/{courseId}', [UserController::class, 'enroll']);
     Route::get('/user/dashboard', [UserController::class, 'getDashboardSummary']);
 
+    // ================= GRADEBOOK =================
+    Route::get('/user/gradebook', [UserController::class, 'getGradebook']);
+
     // ================= CERTIFICATE DOWNLOAD =================
     Route::get('/user/certificates/{courseId}/download', [CertificateController::class, 'download']);
+    Route::get('/user/certificates/{courseId}/status', [CertificateController::class, 'getStatus']);
 
     // ================= COURSE PROGRESS & COMPLETION =================
     Route::get('/courses/{courseId}/progress', [CourseProgressController::class, 'getProgress']);
@@ -59,7 +64,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/courses/{courseId}/check-completion', [CourseProgressController::class, 'checkCourseCompletion']);
 
     // ================= QUIZ SYSTEM (User) =================
-    // ✅ HAPUS DUPLIKAT DI SINI - Cukup definisi sekali saja
     Route::get('/quizzes/{quizId}', [QuizController::class, 'show']);
     Route::post('/quizzes/{quizId}/submit', [QuizController::class, 'submit']);
 
@@ -107,7 +111,7 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::put('/quizzes/questions/{questionId}', [AdminQuizController::class, 'editQuestion']);
     Route::delete('/quizzes/questions/{questionId}', [AdminQuizController::class, 'deleteQuestion']);
 
-    // 4. List all quizzes untuk dropdown
+    // List all quizzes untuk dropdown
     Route::get('/quizzes', function () {
         $quizzes = \App\Models\Quiz::with(['meeting.course' => fn($q) => $q->select('id', 'title')])
             ->select('id', 'title', 'meeting_id')
@@ -123,6 +127,12 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
 
     // ================= QUIZ ATTEMPTS MONITORING =================
     Route::get('/quiz-attempts', [AdminController::class, 'getQuizAttempts']);
+
+    // ================= CERTIFICATE MANAGEMENT (Admin) =================
+    // ✅ BENAR - Hanya 3 route yang diperlukan
+    Route::get('/certificates', [AdminCertificateController::class, 'index']);
+    Route::post('/certificates/{id}/approve', [AdminCertificateController::class, 'approve']);
+    Route::post('/certificates/{id}/reject', [AdminCertificateController::class, 'reject']);
 
 }); // ← ✅ TUTUP GROUP admin
 

@@ -271,4 +271,108 @@ class UserController extends Controller
             ->limit(6)
             ->get();
     }
+    /**
+ * GET: Ambil gradebook user dengan nilai quiz
+ * 
+ * Endpoint: GET /api/user/gradebook
+ * 
+ * @return \Illuminate\Http\JsonResponse
+ */
+public function getGradebook()
+{
+    try {
+        $user = auth()->user();
+        
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthenticated'
+            ], 401);
+        }
+        
+        // 1. Get all enrolled courses for this user
+        $enrollments = \App\Models\Enrollment::where('user_id', $user->id)
+            ->with(['course' => function($q) {
+                $q->select('id', 'title', 'instructor', 'thumbnail');
+            }])
+            ->get();
+        
+        $gradebook = [];
+        
+        foreach ($enrollments as $enrollment) {
+            $course = $enrollment->course;
+            
+            if (!$course) continue;
+            
+            // 2. Get all quizzes for this course
+            $quizzes = \App\Models\Quiz::whereHas('meeting', function($q) use ($course) {
+                $q->where('course_id', $course->id);
+            })->with(['meeting' => function($q) {
+                $q->select('id', 'title', 'type');
+            }])->get();
+            
+            $quizResults = [];
+            $totalScore = 0;
+            $quizCount = 0;
+            
+            // 3. Get best attempt for each quiz
+            foreach ($quizzes as $quiz) {
+                $bestAttempt = \App\Models\QuizAttempt::where('user_id', $user->id)
+                    ->where('quiz_id', $quiz->id)
+                    ->orderBy('score', 'desc')
+                    ->first();
+                
+                if ($bestAttempt) {
+                    $quizResults[] = [
+                        'quiz_id' => $quiz->id,
+                        'quiz_title' => $quiz->title,
+                        'quiz_type' => $quiz->meeting->type ?? 'quiz',
+                        'score' => $bestAttempt->score,
+                        'passed' => $bestAttempt->passed,
+                        'attempt_number' => $bestAttempt->attempt_number,
+                        'submitted_at' => $bestAttempt->created_at,
+                    ];
+                    
+                    $totalScore += $bestAttempt->score;
+                    $quizCount++;
+                }
+            }
+            
+            // 4. Calculate average score
+            $averageScore = $quizCount > 0 ? round($totalScore / $quizCount) : 0;
+            
+            // 5. Add to gradebook
+            $gradebook[] = [
+                'course_id' => $course->id,
+                'course_title' => $course->title,
+                'instructor' => $course->instructor,
+                'thumbnail' => $course->thumbnail,
+                'enrolled_at' => $enrollment->created_at,
+                'completed_at' => $enrollment->completed_at,
+                'overall_progress' => $enrollment->completed_at ? 100 : 0,
+                'average_score' => $averageScore,
+                'total_quizzes' => $quizzes->count(),
+                'completed_quizzes' => count($quizResults),
+                'quiz_results' => $quizResults,
+            ];
+        }
+        
+        return response()->json([
+            'success' => true,
+            'gradebook' => $gradebook,
+        ]);
+        
+    } catch (\Throwable $e) {
+        \Log::error('Gradebook error: ' . $e->getMessage(), [
+            'user_id' => auth()->id(),
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to load gradebook',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
+    }
+    }
 }

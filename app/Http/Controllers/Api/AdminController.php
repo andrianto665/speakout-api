@@ -49,22 +49,34 @@ class AdminController extends Controller
      * Endpoint: GET /api/admin/courses
      */
     public function index(): JsonResponse
-    {
-        try {
-            $this->ensureAdmin();
-            
-            $courses = Course::withCount(['meetings as total_lessons' => fn($q) => $q->whereNotNull('content')])
-                ->select('id', 'title', 'description', 'instructor', 'thumbnail', 'created_at')
-                ->orderBy('created_at', 'desc')
-                ->paginate(20);
-            
-            return response()->json($courses);
-            
-        } catch (\Exception $e) {
-            Log::error('AdminController@index: ' . $e->getMessage());
-            return response()->json(['message' => 'Failed to load courses'], 500);
-        }
+{
+    try {
+        $this->ensureAdmin();
+        
+        $courses = Course::withCount(['meetings as total_lessons' => fn($q) => $q->whereNotNull('content')])
+            ->select(
+                'id', 
+                'title', 
+                'description', 
+                'instructor', 
+                'thumbnail', 
+                'category',      // ✅ TAMBAHKAN
+                'level',         // ✅ TAMBAHKAN
+                'price',         // ✅ TAMBAHKAN
+                'duration',      // ✅ TAMBAHKAN
+                'created_at',
+                'updated_at'
+            )
+            ->orderBy('created_at', 'desc')
+            ->paginate(20);
+        
+        return response()->json($courses);
+        
+    } catch (\Exception $e) {
+        Log::error('AdminController@index: ' . $e->getMessage());
+        return response()->json(['message' => 'Failed to load courses'], 500);
     }
+}
     
     /**
      * GET: Show single course details
@@ -98,9 +110,12 @@ class AdminController extends Controller
             // Validate input
             $validated = $request->validate([
                 'title' => 'required|string|max:255',
-                'description' => 'nullable|string|max:1000',
+                'description' => 'nullable|string',
                 'instructor' => 'required|string|max:255',
-                'thumbnail' => 'nullable|url'
+                'category' => 'nullable|string|max:100',
+                'level' => 'nullable|string|max:100',
+                'price' => 'nullable|integer|min:0',
+                'duration' => 'nullable|string|max:100',
             ]);
             
             // Create course
@@ -135,10 +150,13 @@ class AdminController extends Controller
             
             // Validate input
             $validated = $request->validate([
-                'title' => 'sometimes|required|string|max:255',
-                'description' => 'nullable|string|max:1000',
-                'instructor' => 'sometimes|required|string|max:255',
-                'thumbnail' => 'nullable|url'
+                'title' => 'required|string|max:255',
+                'description' => 'nullable|string',
+                'instructor' => 'required|string|max:255',
+                'category' => 'nullable|string|max:100',
+                'level' => 'nullable|string|max:100',
+                'price' => 'nullable|integer|min:0',
+                'duration' => 'nullable|string|max:100',
             ]);
             
             // Update course
