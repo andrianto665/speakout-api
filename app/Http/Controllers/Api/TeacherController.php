@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Controllers\Controller;  // ✅ Import base Controller
+use App\Http\Controllers\Controller;
 use App\Models\Course;
 use Illuminate\Http\Request;
 
@@ -13,22 +13,50 @@ class TeacherController extends Controller
      */
     public function index()
     {
-        // Ambil semua instructor yang unique dari courses
-        $teachers = Course::select('instructor')
-            ->distinct()
-            ->get()
-            ->map(function($course) {
-                return [
-                    'name' => $course->instructor,
-                    'courses_count' => Course::where('instructor', $course->instructor)->count(),
-                    'total_students' => 0, // Bisa ditambahkan nanti
-                ];
-            });
+        try {
+            // Ambil semua instructor yang unique dari courses
+            $teachers = Course::select('instructor')
+                ->distinct()
+                ->get()
+                ->map(function($course, $index) {
+                    return [
+                        'id' => $index + 1,
+                        'name' => $course->instructor,
+                        'role' => 'Tutor SpeakOut',
+                        'photo' => null, // Bisa ditambahkan field photo di courses table
+                        'expertise' => $this->getExpertiseByIndex($index),
+                        'courses_count' => Course::where('instructor', $course->instructor)->count(),
+                        'total_students' => 0,
+                    ];
+                });
 
-        return response()->json([
-            'success' => true,
-            'data' => $teachers
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => $teachers
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load teachers',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper untuk assign expertise berdasarkan index
+     */
+    private function getExpertiseByIndex($index)
+    {
+        $expertiseList = [
+            ['Speaking', 'Grammar', 'TOEFL'],
+            ['Conversation', 'Writing', 'Business'],
+            ['Pronunciation', 'Listening', 'IELTS'],
+            ['Public Speaking', 'Debate', 'Academic'],
+        ];
+        
+        return $expertiseList[$index % count($expertiseList)];
     }
 
     /**
@@ -36,15 +64,29 @@ class TeacherController extends Controller
      */
     public function show($name)
     {
-        $courses = Course::where('instructor', $name)->get();
-        
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'name' => $name,
-                'courses' => $courses,
-                'total_courses' => $courses->count()
-            ]
-        ]);
+        try {
+            $courses = Course::where('instructor', $name)->get();
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'id' => 1,
+                    'name' => $name,
+                    'role' => 'Tutor SpeakOut',
+                    'photo' => null,
+                    'expertise' => ['Speaking', 'Grammar', 'TOEFL'],
+                    'courses' => $courses,
+                    'total_courses' => $courses->count(),
+                    'courses_count' => $courses->count(),
+                    'total_students' => 0
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Teacher not found'
+            ], 404);
+        }
     }
 }

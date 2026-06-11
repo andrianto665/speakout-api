@@ -100,147 +100,168 @@ class QuizController extends Controller
      * Endpoint: POST /api/quizzes/{quizId}/submit
      */
     public function submit(Request $request, $quizId): JsonResponse
-    {
-        try {
-            $user = Auth::user();
-            
-            // Step 1: Cek authentication
-            if (!$user || !isset($user->id)) {
-                return response()->json(['message' => 'Unauthenticated'], 401);
-            }
+{
+    try {
+        $user = Auth::user();
+        
+        if (!$user || !isset($user->id)) {
+            return response()->json(['message' => 'Unauthenticated'], 401);
+        }
 
-            // Step 2: Cek quiz ada
-            $quiz = Quiz::with('meeting')->find($quizId);
-            if (!$quiz || !isset($quiz->id)) {
-                return response()->json(['message' => 'Quiz not found'], 404);
-            }
+        $quiz = Quiz::with('meeting')->find($quizId);
+        if (!$quiz || !isset($quiz->id)) {
+            return response()->json(['message' => 'Quiz not found'], 404);
+        }
 
-            // Step 3: Validasi answers
-            $answers = $request->input('answers', []);
-            if (!is_array($answers)) {
-                return response()->json(['message' => 'Invalid answers format'], 400);
-            }
+        $answers = $request->input('answers', []);
+        if (!is_array($answers)) {
+            return response()->json(['message' => 'Invalid answers format'], 400);
+        }
 
-            // Step 4: Cek batas attempt
-            $maxAttempts = $quiz->max_attempts ?? 0;
-            if ($maxAttempts > 0) {
-                $count = QuizAttempt::where('user_id', $user->id)
-                    ->where('quiz_id', $quiz->id)
-                    ->count();
-                if ($count >= $maxAttempts) {
-                    return response()->json(['message' => 'Max attempts reached'], 403);
-                }
-            }
-
-            // Step 5: Ambil soal untuk grading
-            $questions = QuizQuestion::where('quiz_id', $quiz->id)->get();
-            if ($questions->isEmpty()) {
-                return response()->json([
-                    'message' => 'No questions found', 
-                    'score' => 0, 
-                    'passed' => false
-                ], 400);
-            }
-
-            // Step 6: Grading
-            $totalPoints = 0;
-            $earnedPoints = 0;
-
-            foreach ($questions as $q) {
-                $qid = $q->id ?? null;
-                $correct = $q->correct_answer ?? null;
-                $points = $q->points ?? 1;
-
-                if ($qid === null) continue;
-
-                $totalPoints += $points;
-                $userAns = $answers[$qid] ?? null;
-
-                if ($userAns === $correct) {
-                    $earnedPoints += $points;
-                }
-            }
-
-            $score = $totalPoints > 0 ? round(($earnedPoints / $totalPoints) * 100) : 0;
-            $passingScore = $quiz->passing_score ?? 70;
-            $passed = $score >= $passingScore;
-
-            // Step 7: Simpan attempt
-            $previousAttempts = QuizAttempt::where('user_id', $user->id)
+        // Check max attempts
+        $maxAttempts = $quiz->max_attempts ?? 0;
+        if ($maxAttempts > 0) {
+            $count = QuizAttempt::where('user_id', $user->id)
                 ->where('quiz_id', $quiz->id)
                 ->count();
-            
-            $attempt = QuizAttempt::create([
-                'user_id' => $user->id,
-                'quiz_id' => $quiz->id,
-                'score' => $score,
-                'passed' => $passed,
-                'answers' => json_encode($answers),
-                'attempt_number' => $previousAttempts + 1,
-            ]);
-
-            // Step 8: Update progress jika lulus
-            $meetingId = $quiz->meeting_id ?? null;
-            
-            if (!$meetingId) {
-                $meetingId = DB::table('quizzes')->where('id', $quiz->id)->value('meeting_id');
+            if ($count >= $maxAttempts) {
+                return response()->json(['message' => 'Max attempts reached'], 403);
             }
-
-            if ($passed && $meetingId) {
-                DB::table('user_progress')->updateOrInsert(
-                    ['user_id' => $user->id, 'meeting_id' => $meetingId],
-                    [
-                        'is_completed' => 1,
-                        'completed_at' => now(),
-                        'updated_at' => now()
-                    ]
-                );
-                Log::info('✅ Progress saved', [
-                    'user_id' => $user->id,
-                    'meeting_id' => $meetingId,
-                ]);
-            }
-
-            // Step 9: Auto-generate certificate jika course completed
-            $courseId = $quiz->meeting?->course_id;
-            if ($courseId) {
-                $this->checkAndGenerateCertificate($user->id, $courseId);
-            }
-
-            // Step 10: Return hasil
-            return response()->json([
-                'success' => true,
-                'message' => $passed 
-                    ? '🎉 Selamat! Kamu lulus kuis ini.' 
-                    : '❌ Skor belum memenuhi batas kelulusan. Coba lagi!',
-                'score' => $score,
-                'passed' => $passed,
-                'passing_score' => $passingScore,
-                'course_id' => $courseId,
-                'meeting_id' => $meetingId,
-                'attempt' => [
-                    'id' => $attempt->id,
-                    'attempt_number' => $attempt->attempt_number,
-                    'score' => $attempt->score,
-                    'passed' => $attempt->passed,
-                ],
-            ]);
-
-        } catch (\Throwable $e) {
-            Log::error('❌ Quiz submit error', [
-                'quiz_id' => $quizId,
-                'error' => $e->getMessage(),
-                'line' => $e->getLine(),
-                'file' => $e->getFile(),
-            ]);
-            
-            return response()->json([
-                'success' => false,
-                'message' => 'Server error processing quiz',
-                'debug' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
         }
+
+        // Get questions for grading
+        $questions = QuizQuestion::where('quiz_id', $quiz->id)->get();
+        if ($questions->isEmpty()) {
+            return response()->json([
+                'message' => 'No questions found', 
+                'score' => 0, 
+                'passed' => false
+            ], 400);
+        }
+
+        // ✅ IMPROVED GRADING LOGIC
+        $totalPoints = 0;
+        $earnedPoints = 0;
+
+        foreach ($questions as $q) {
+            $qid = $q->id ?? null;
+            $correct = $q->correct_answer ?? null;
+            $points = $q->points ?? 1;
+
+            if ($qid === null) continue;
+
+            $totalPoints += $points;
+            $userAns = $answers[$qid] ?? null;
+
+            if ($userAns === null) continue;
+
+            // ✅ Normalize user answer to string
+            $userValue = '';
+            if (is_string($userAns)) {
+                $userValue = $userAns;
+            } elseif (is_array($userAns)) {
+                $userValue = $userAns['label'] ?? $userAns['text'] ?? '';
+            }
+
+            // ✅ Normalize correct answer to string
+            $correctValue = '';
+            if (is_string($correct)) {
+                $correctValue = $correct;
+            } elseif (is_array($correct)) {
+                $correctValue = $correct['label'] ?? $correct['text'] ?? '';
+            }
+
+            // ✅ For text legacy: map letter (A/B/C/D) to option value
+            if ($q->question_type === 'text' && is_string($userAns) && strlen($userAns) === 1 && ctype_alpha($userAns)) {
+                $letterIndex = ord(strtoupper($userAns)) - 65; // A=0, B=1, C=2, D=3
+                $options = is_string($q->options) ? json_decode($q->options, true) : $q->options;
+                
+                if (is_array($options) && isset($options[$letterIndex])) {
+                    $userValue = $options[$letterIndex];
+                }
+            }
+
+            // ✅ Compare (case-insensitive, trim whitespace)
+            if (strtolower(trim($userValue)) === strtolower(trim($correctValue))) {
+                $earnedPoints += $points;
+            }
+        }
+
+        $score = $totalPoints > 0 ? round(($earnedPoints / $totalPoints) * 100) : 0;
+        $passingScore = $quiz->passing_score ?? 70;
+        $passed = $score >= $passingScore;
+
+        // Save attempt
+        $previousAttempts = QuizAttempt::where('user_id', $user->id)
+            ->where('quiz_id', $quiz->id)
+            ->count();
+        
+        $attempt = QuizAttempt::create([
+            'user_id' => $user->id,
+            'quiz_id' => $quiz->id,
+            'score' => $score,
+            'passed' => $passed,
+            'answers' => json_encode($answers),
+            'attempt_number' => $previousAttempts + 1,
+        ]);
+
+        // Update progress if passed
+        $meetingId = $quiz->meeting_id ?? null;
+        
+        if (!$meetingId) {
+            $meetingId = DB::table('quizzes')->where('id', $quiz->id)->value('meeting_id');
+        }
+
+        if ($passed && $meetingId) {
+            DB::table('user_progress')->updateOrInsert(
+                ['user_id' => $user->id, 'meeting_id' => $meetingId],
+                [
+                    'is_completed' => 1,
+                    'completed_at' => now(),
+                    'updated_at' => now()
+                ]
+            );
+        }
+
+        // Auto-generate certificate if course completed
+        $courseId = $quiz->meeting?->course_id;
+        if ($courseId) {
+            $this->checkAndGenerateCertificate($user->id, $courseId);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $passed 
+                ? '🎉 Selamat! Kamu lulus kuis ini.' 
+                : '❌ Skor belum memenuhi batas kelulusan. Coba lagi!',
+            'score' => $score,
+            'passed' => $passed,
+            'passing_score' => $passingScore,
+            'earned_points' => $earnedPoints,
+            'total_points' => $totalPoints,
+            'course_id' => $courseId,
+            'meeting_id' => $meetingId,
+            'attempt' => [
+                'id' => $attempt->id,
+                'attempt_number' => $attempt->attempt_number,
+                'score' => $attempt->score,
+                'passed' => $attempt->passed,
+            ],
+        ]);
+
+    } catch (\Throwable $e) {
+        Log::error('❌ Quiz submit error', [
+            'quiz_id' => $quizId,
+            'error' => $e->getMessage(),
+        ]);
+        
+        return response()->json([
+            'success' => false,
+            'message' => 'Server error processing quiz',
+            'debug' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
+}
 
     /**
      * ✅ HELPER: Auto-Generate Certificate dengan status PENDING

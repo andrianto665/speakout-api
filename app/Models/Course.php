@@ -2,41 +2,31 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Course extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'title',
         'description',
         'instructor',
+        'thumbnail',
         'category',
         'level',
-        'price',        // ✅ PASTIKAN ADA
-        'duration',     // ✅ PASTIKAN ADA
-        'thumbnail',
-        'status',
+        'price',
+        'duration',
     ];
-    
-    // RELATIONSHIP
-    public function lessons()
-    {
-        return $this->hasMany(Lesson::class);
-    }
 
     public function meetings()
     {
         return $this->hasMany(Meeting::class);
     }
 
-    // app/Models/Course.php - tambahkan relasi:
-public function enrollments() {
-    return $this->hasMany(Enrollment::class);
-}
-
-public function enrolledUsers() {
-    return $this->belongsToMany(User::class, 'enrollments')
-                ->withTimestamps()
-                ->withPivot('enrolled_at', 'completed_at');
-}
+    public function enrollments()
+    {
+        return $this->hasMany(Enrollment::class);
+    }
 }
