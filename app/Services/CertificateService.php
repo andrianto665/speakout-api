@@ -54,16 +54,11 @@ class CertificateService
             ->setOption('margin_top', 0)
             ->setOption('margin_bottom', 0);
         
-        // Save PDF to public storage
-        $filename = "certificates/{$certificateNumber}.pdf";
-        Storage::disk('public')->put($filename, $pdf->output());
-        
-        // Create and return certificate record
+        // Create and return certificate record (PDF generated on-the-fly)
         return Certificate::create([
             'user_id' => $user->id,
             'course_id' => $course->id,
             'certificate_number' => $certificateNumber,
-            'file_path' => $filename,
             'verification_code' => $verificationCode,
             'issued_at' => now(),
         ]);
@@ -77,7 +72,7 @@ class CertificateService
      */
     public function getDownloadUrl(Certificate $certificate): string
     {
-        return Storage::disk('public')->url($certificate->file_path);
+        return url("/api/user/certificates/{$certificate->course_id}/download");
     }
     
     /**

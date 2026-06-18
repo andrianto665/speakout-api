@@ -1,0 +1,12 @@
+includes:
+    - vendor/nunomaduro/larastan/extension.neon
+
+parameters:
+    paths:
+        - app
+    level: 5
+    ignoreErrors:
+        - '#Call to an undefined method Laravel\\Sanctum\\Contracts\\HasAbilities::delete\(\)#'
+    excludePaths:
+        - app/Http/Controllers/Api/ProgressController.php
+    treatPhpDocTypesAsCertain: false

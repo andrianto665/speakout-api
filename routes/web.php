@@ -16,3 +16,11 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return view('welcome');
 });
+// Certificate verification page
+Route::get('/verify/{code}', function($code) {
+    $certificate = \App\Models\Certificate::where('verification_code', $code)
+        ->with(['user', 'course'])
+        ->firstOrFail();
+    
+    return view('certificates.verify', compact('certificate'));
+})->name('verify.certificate');

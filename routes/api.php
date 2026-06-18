@@ -46,6 +46,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/user', fn(Request $request) => $request->user());
 
+    // ================= USER PROFILE =================
+    Route::get('/user/profile', [UserController::class, 'profile']);
+    Route::put('/user/profile', [UserController::class, 'updateProfile']);
+    Route::post('/user/change-password', [UserController::class, 'changePassword']);
+    Route::delete('/user/account', [UserController::class, 'deleteAccount']);
+
     // ================= USER DASHBOARD & ENROLLMENTS =================
     Route::get('/user/enrolled-courses', [UserController::class, 'getEnrolledCourses']);
     Route::post('/user/enroll/{courseId}', [UserController::class, 'enroll']);
@@ -54,9 +60,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // ================= GRADEBOOK =================
     Route::get('/user/gradebook', [UserController::class, 'getGradebook']);
 
-    // ================= CERTIFICATE DOWNLOAD =================
-    Route::get('/user/certificates/{courseId}/download', [CertificateController::class, 'download']);
+    // ================= USER CERTIFICATE =================
     Route::get('/user/certificates/{courseId}/status', [CertificateController::class, 'getStatus']);
+    Route::get('/user/certificates/{courseId}/download', [CertificateController::class, 'download']);
 
     // ================= COURSE PROGRESS & COMPLETION =================
     Route::get('/courses/{courseId}/progress', [CourseProgressController::class, 'getProgress']);
@@ -129,10 +135,11 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::get('/quiz-attempts', [AdminController::class, 'getQuizAttempts']);
 
     // ================= CERTIFICATE MANAGEMENT (Admin) =================
-    // ✅ BENAR - Hanya 3 route yang diperlukan
     Route::get('/certificates', [AdminCertificateController::class, 'index']);
+    Route::post('/certificates', [AdminCertificateController::class, 'store']); // Create manual
     Route::post('/certificates/{id}/approve', [AdminCertificateController::class, 'approve']);
     Route::post('/certificates/{id}/reject', [AdminCertificateController::class, 'reject']);
+    Route::get('/courses/{courseId}/enrolled-students', [AdminCertificateController::class, 'enrolledStudents']);
 
 }); // ← ✅ TUTUP GROUP admin
 

@@ -1,31 +1,53 @@
 <?php
-
 namespace App\Models;
-
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * @property int $id
+ * @property int $course_id
+ * @property string $title
+ * @property int $order_number
+ * @property string|null $content
+ * @property string $type
+ * @property int $has_test
+ * @property int $is_final_test
+ */
 class Meeting extends Model
 {
-    // ✅ TAMBAHKAN SEMUA KOLOM YANG MAU DI-INSERT
     protected $fillable = [
         'course_id',
-        'title',          // ← Wajib! (karena kita pakai 'title', bukan 'name')
-        'order_number',   // ← Wajib! (karena tabel pakai 'order_number')
+        'title',
+        'order_number',
         'content',
         'type',
         'has_test',
         'is_final_test'
     ];
 
-    // Relasi ke Course
-    public function course()
+    public function course(): BelongsTo
     {
         return $this->belongsTo(Course::class);
     }
 
-    // 🔗 Relasi ke Kuis (Opsional, karena tidak semua meeting adalah kuis)
-    public function quiz(): \Illuminate\Database\Eloquent\Relations\HasOne
+    public function quiz(): HasOne
     {
         return $this->hasOne(Quiz::class, 'meeting_id');
+    }
+
+    public function isLesson(): bool
+    {
+        if ($this->content !== null && $this->content !== '') {
+            return true;
+        }
+        $type = strtolower($this->type ?? '');
+        if (in_array($type, ['quiz', 'final', 'test', 'quiz_assessment', 'assessment'])) {
+            return true;
+        }
+        if (!empty($this->has_test) || !empty($this->is_final_test)) {
+            return true;
+        }
+        return false;
     }
 }

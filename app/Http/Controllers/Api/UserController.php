@@ -1,6 +1,6 @@
 <?php
 /**
- * User Controller - Handle user dashboard, enrollments & progress
+ * User Controller - Handle user dashboard, enrollments, progress & profile
  * 
  * @package App\Http\Controllers\Api
  * @author SpeakOut Team
@@ -12,10 +12,14 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Enrollment;
 use App\Models\UserProgress;
+use App\Models\Certificate;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
@@ -120,29 +124,221 @@ class UserController extends Controller
     }
     
     // =========================================================================
-    // PRIVATE HELPER METHODS
+    // ✅ NEW: PROFILE METHODS
     // =========================================================================
     
     /**
-     * ✅ ROBUST: Filter lessons - include content OR quiz/test/final types
+     * Get user profile with stats
+     * 
+     * GET /api/user/profile
      */
-    private function isLesson($meeting): bool
+    public function profile(): JsonResponse
     {
-        if ($meeting->content !== null && $meeting->content !== '') {
-            return true;
+        try {
+            $user = Auth::user();
+            
+            // Stats berbeda untuk admin vs student
+            $stats = [];
+            if ($user->role === 'admin') {
+                // Admin stats
+                $stats = [
+                    'total_users' => User::count(),
+                    'total_courses' => Course::count(),
+                    'total_enrollments' => Enrollment::count(),
+                    'completed_courses' => Enrollment::whereNotNull('completed_at')->count(),
+                ];
+            } else {
+                // Student stats
+                $enrolledCount = $user->enrolledCourses()->count();
+                $completedCount = Enrollment::where('user_id', $user->id)
+                    ->whereNotNull('completed_at')
+                    ->count();
+                $inProgressCount = $enrolledCount - $completedCount;
+                $certificatesCount = Certificate::where('user_id', $user->id)
+                    ->where('status', 'approved')
+                    ->count();
+                
+                $stats = [
+                    'total_enrolled' => $enrolledCount,
+                    'in_progress' => $inProgressCount,
+                    'total_completed' => $completedCount,
+                    'certificates' => $certificatesCount,
+                ];
+            }
+            
+            return response()->json([
+                'success' => true,
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone ?? '',
+                    'role' => $user->role,
+                    'created_at' => $user->created_at,
+                ],
+                'stats' => $stats
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('UserController@profile: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load profile',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         }
-        
-        $type = strtolower($meeting->type ?? '');
-        if (in_array($type, ['quiz', 'final', 'test', 'quiz_assessment', 'assessment'])) {
-            return true;
-        }
-        
-        if (!empty($meeting->has_test) || !empty($meeting->is_final_test)) {
-            return true;
-        }
-        
-        return false;
     }
+    
+    /**
+     * Update user profile
+     * 
+     * PUT /api/user/profile
+     */
+    public function updateProfile(Request $request): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            
+            $request->validate([
+                'name' => 'required|string|max:255',
+                'email' => [
+                    'required',
+                    'email',
+                    'max:255',
+                    Rule::unique('users')->ignore($user->id),
+                ],
+                'phone' => 'nullable|string|max:20',
+            ]);
+            
+            $user->update([
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone' => $request->phone,
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Profil berhasil diperbarui',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'phone' => $user->phone,
+                    'role' => $user->role,
+                ]
+            ]);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('UserController@updateProfile: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update profile',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+    
+    /**
+     * Change user password
+     * 
+     * POST /api/user/change-password
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        try {
+            $request->validate([
+                'current_password' => 'required',
+                'password' => 'required|string|min:8|confirmed',
+            ]);
+            
+            $user = Auth::user();
+            
+            // Verifikasi password lama
+            if (!Hash::check($request->current_password, $user->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Password saat ini salah'
+                ], 422);
+            }
+            
+            // Update password
+            $user->update([
+                'password' => Hash::make($request->password)
+            ]);
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Password berhasil diperbarui'
+            ]);
+            
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('UserController@changePassword: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to change password',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+    
+    /**
+     * Delete user account
+     * 
+     * DELETE /api/user/account
+     */
+    public function deleteAccount(): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            
+            // Jangan izinkan admin menghapus akun sendiri jika hanya ada 1 admin
+            if ($user->role === 'admin') {
+                $adminCount = User::where('role', 'admin')->count();
+                if ($adminCount <= 1) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tidak dapat menghapus akun. Harus ada minimal 1 admin.'
+                    ], 403);
+                }
+            }
+            
+            // Hapus semua data terkait
+            $user->enrolledCourses()->detach();
+            $user->certificates()->delete();
+            $user->quizAttempts()->delete();
+            $user->progress()->delete();
+            
+            // Hapus user
+            $user->delete();
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Akun berhasil dihapus'
+            ]);
+            
+        } catch (\Exception $e) {
+            Log::error('UserController@deleteAccount: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to delete account',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+    
+
     
     /**
      * Format course data with progress calculation
@@ -151,7 +347,7 @@ class UserController extends Controller
     private function formatCourseWithProgress($course, $user): array
     {
         $meetings = $course->meetings;
-        $lessons = $meetings->filter(fn($m) => $this->isLesson($m));
+        $lessons = $meetings->filter(fn($m) => $m->isLesson());
         
         $lessonIds = $lessons->pluck('id');
         $completedIds = UserProgress::where('user_id', $user->id)
@@ -171,9 +367,9 @@ class UserController extends Controller
             'description' => $course->description,
             'instructor' => $course->instructor,
             'thumbnail' => $course->thumbnail,
-            'category' => $course->category,       // ✅ NEW
-            'level' => $course->level,             // ✅ NEW
-            'duration' => $course->duration,       // ✅ NEW
+            'category' => $course->category,
+            'level' => $course->level,
+            'duration' => $course->duration,
             'enrolled_at' => $course->pivot->enrolled_at,
             'progress' => $progress,
             'total_lessons' => $total,
@@ -222,7 +418,7 @@ class UserController extends Controller
     private function formatCourseSummary($course, $user): array
     {
         $meetings = $course->meetings;
-        $lessons = $meetings->filter(fn($m) => $this->isLesson($m));
+        $lessons = $meetings->filter(fn($m) => $m->isLesson());
         
         $lessonIds = $lessons->pluck('id');
         $completed = UserProgress::where('user_id', $user->id)
@@ -236,12 +432,12 @@ class UserController extends Controller
         return [
             'id' => $course->id,
             'title' => $course->title,
-            'description' => $course->description,       // ✅ NEW
-            'instructor' => $course->instructor,         // ✅ NEW
+            'description' => $course->description,
+            'instructor' => $course->instructor,
             'thumbnail' => $course->thumbnail,
-            'category' => $course->category,             // ✅ NEW
-            'level' => $course->level,                   // ✅ NEW
-            'duration' => $course->duration,             // ✅ NEW
+            'category' => $course->category,
+            'level' => $course->level,
+            'duration' => $course->duration,
             'progress' => $progress,
             'total_lessons' => $total,
             'completed_lessons' => $completed,
@@ -264,115 +460,130 @@ class UserController extends Controller
                 'courses.description', 
                 'courses.instructor', 
                 'courses.thumbnail',
-                'courses.category',    // ✅ NEW
-                'courses.level',       // ✅ NEW
-                'courses.duration'     // ✅ NEW
+                'courses.category',
+                'courses.level',
+                'courses.duration'
             )
             ->limit(6)
             ->get();
     }
     /**
- * GET: Ambil gradebook user dengan nilai quiz
- * 
- * Endpoint: GET /api/user/gradebook
- * 
- * @return \Illuminate\Http\JsonResponse
+ * Hitung progress course berdasarkan UserProgress
  */
-public function getGradebook()
+private function calculateProgress($course, $user): int|float
 {
-    try {
-        $user = auth()->user();
-        
-        if (!$user) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Unauthenticated'
-            ], 401);
-        }
-        
-        // 1. Get all enrolled courses for this user
-        $enrollments = \App\Models\Enrollment::where('user_id', $user->id)
-            ->with(['course' => function($q) {
-                $q->select('id', 'title', 'instructor', 'thumbnail');
-            }])
-            ->get();
-        
-        $gradebook = [];
-        
-        foreach ($enrollments as $enrollment) {
-            $course = $enrollment->course;
+    $course->loadMissing(['meetings']);
+    $lessons = $course->meetings->filter(fn($m) => $m->isLesson());
+    $total = $lessons->count();
+    if ($total === 0) return 0;
+    $completed = UserProgress::where('user_id', $user->id)
+        ->where('is_completed', true)
+        ->whereIn('meeting_id', $lessons->pluck('id'))
+        ->count();
+    return round(($completed / $total) * 100);
+}
+    
+    /**
+     * GET: Ambil gradebook user dengan nilai quiz
+     * 
+     * Endpoint: GET /api/user/gradebook
+     */
+    public function getGradebook()
+    {
+        try {
+            $user = auth()->user();
             
-            if (!$course) continue;
-            
-            // 2. Get all quizzes for this course
-            $quizzes = \App\Models\Quiz::whereHas('meeting', function($q) use ($course) {
-                $q->where('course_id', $course->id);
-            })->with(['meeting' => function($q) {
-                $q->select('id', 'title', 'type');
-            }])->get();
-            
-            $quizResults = [];
-            $totalScore = 0;
-            $quizCount = 0;
-            
-            // 3. Get best attempt for each quiz
-            foreach ($quizzes as $quiz) {
-                $bestAttempt = \App\Models\QuizAttempt::where('user_id', $user->id)
-                    ->where('quiz_id', $quiz->id)
-                    ->orderBy('score', 'desc')
-                    ->first();
-                
-                if ($bestAttempt) {
-                    $quizResults[] = [
-                        'quiz_id' => $quiz->id,
-                        'quiz_title' => $quiz->title,
-                        'quiz_type' => $quiz->meeting->type ?? 'quiz',
-                        'score' => $bestAttempt->score,
-                        'passed' => $bestAttempt->passed,
-                        'attempt_number' => $bestAttempt->attempt_number,
-                        'submitted_at' => $bestAttempt->created_at,
-                    ];
-                    
-                    $totalScore += $bestAttempt->score;
-                    $quizCount++;
-                }
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated'
+                ], 401);
             }
             
-            // 4. Calculate average score
-            $averageScore = $quizCount > 0 ? round($totalScore / $quizCount) : 0;
+            // 1. Get all enrolled courses for this user
+            $enrollments = \App\Models\Enrollment::where('user_id', $user->id)
+                ->with(['course' => function($q) {
+                    $q->select('id', 'title', 'instructor', 'thumbnail');
+                }])
+                ->get();
             
-            // 5. Add to gradebook
-            $gradebook[] = [
-                'course_id' => $course->id,
-                'course_title' => $course->title,
-                'instructor' => $course->instructor,
-                'thumbnail' => $course->thumbnail,
-                'enrolled_at' => $enrollment->created_at,
-                'completed_at' => $enrollment->completed_at,
-                'overall_progress' => $enrollment->completed_at ? 100 : 0,
-                'average_score' => $averageScore,
-                'total_quizzes' => $quizzes->count(),
-                'completed_quizzes' => count($quizResults),
-                'quiz_results' => $quizResults,
-            ];
+            $gradebook = [];
+            
+            foreach ($enrollments as $enrollment) {
+                $course = $enrollment->course;
+                
+                if (!$course) continue;
+                
+                // 2. Get all quizzes for this course
+                $quizzes = \App\Models\Quiz::whereHas('meeting', function($q) use ($course) {
+                    $q->where('course_id', $course->id);
+                })->with(['meeting' => function($q) {
+                    $q->select('id', 'title', 'type');
+                }])->get();
+                
+                $quizResults = [];
+                $totalScore = 0;
+                $quizCount = 0;
+                
+                // 3. Get best attempt for each quiz
+                foreach ($quizzes as $quiz) {
+                    $bestAttempt = \App\Models\QuizAttempt::where('user_id', $user->id)
+                        ->where('quiz_id', $quiz->id)
+                        ->orderBy('score', 'desc')
+                        ->first();
+                    
+                    if ($bestAttempt) {
+                        $quizResults[] = [
+                            'quiz_id' => $quiz->id,
+                            'quiz_title' => $quiz->title,
+                            'quiz_type' => $quiz->meeting->type ?? 'quiz',
+                            'score' => $bestAttempt->score,
+                            'passed' => $bestAttempt->passed,
+                            'attempt_number' => $bestAttempt->attempt_number,
+                            'submitted_at' => $bestAttempt->created_at,
+                        ];
+                        
+                        $totalScore += $bestAttempt->score;
+                        $quizCount++;
+                    }
+                }
+                
+                // 4. Calculate average score
+                $averageScore = $quizCount > 0 ? round($totalScore / $quizCount) : 0;
+                
+                // 5. Add to gradebook
+                $gradebook[] = [
+                    'course_id' => $course->id,
+                    'course_title' => $course->title,
+                    'instructor' => $course->instructor,
+                    'thumbnail' => $course->thumbnail,
+                    'enrolled_at' => $enrollment->created_at,
+                    'completed_at' => $enrollment->completed_at,
+                    // ✅ SESUDAH
+                    'overall_progress' => $this->calculateProgress($course, $user),
+                    'average_score' => $averageScore,
+                    'total_quizzes' => $quizzes->count(),
+                    'completed_quizzes' => count($quizResults),
+                    'quiz_results' => $quizResults,
+                ];
+            }
+            
+            return response()->json([
+                'success' => true,
+                'gradebook' => $gradebook,
+            ]);
+            
+        } catch (\Throwable $e) {
+            \Log::error('Gradebook error: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load gradebook',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         }
-        
-        return response()->json([
-            'success' => true,
-            'gradebook' => $gradebook,
-        ]);
-        
-    } catch (\Throwable $e) {
-        \Log::error('Gradebook error: ' . $e->getMessage(), [
-            'user_id' => auth()->id(),
-            'trace' => $e->getTraceAsString()
-        ]);
-        
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to load gradebook',
-            'error' => config('app.debug') ? $e->getMessage() : null
-        ], 500);
-    }
     }
 }

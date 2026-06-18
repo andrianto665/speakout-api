@@ -21,6 +21,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'phone',
         'role', // ← Tambahkan ini
     ];
 
@@ -44,13 +45,27 @@ class User extends Authenticatable
     ];
 
     // app/Models/User.php - tambahkan relasi:
-public function enrollments() {
+    public function enrollments(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
     return $this->hasMany(Enrollment::class);
-}
+    }
 
-public function enrolledCourses() {
+    public function enrolledCourses(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
     return $this->belongsToMany(Course::class, 'enrollments')
                 ->withTimestamps()
                 ->withPivot('enrolled_at', 'completed_at');
-}
+    }
+    public function certificates(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+    return $this->hasMany(Certificate::class);
+    }
+    public function quizAttempts(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+    return $this->hasMany(QuizAttempt::class);
+    }
+    public function progress(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+    return $this->hasMany(UserProgress::class);
+    }
 }

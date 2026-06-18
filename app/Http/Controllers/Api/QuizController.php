@@ -278,12 +278,8 @@ class QuizController extends Controller
         try {
             // 1. Get all lesson IDs for this course
             $lessonIds = Meeting::where('course_id', $courseId)
-                ->where(function($q) {
-                    $q->whereNotNull('content')
-                      ->orWhereIn('type', ['quiz', 'final', 'test'])
-                      ->orWhere('has_test', 1)
-                      ->orWhere('is_final_test', 1);
-                })
+                ->get()
+                ->filter(fn($m) => $m->isLesson())
                 ->pluck('id')
                 ->toArray();
             
@@ -311,6 +307,25 @@ class QuizController extends Controller
             ]);
             
             if ($completedLessons >= $totalLessons) {
+                // ✅ TAMBAHAN: pastikan final quiz sudah passed sebelum generate certificate
+    $finalMeeting = Meeting::where('course_id', $courseId)->where('type', 'final')->first();
+    if ($finalMeeting) {
+        $finalQuiz = Quiz::where('meeting_id', $finalMeeting->id)->first();
+        if ($finalQuiz) {
+            $finalPassed = QuizAttempt::where('user_id', $userId)
+                ->where('quiz_id', $finalQuiz->id)
+                ->where('passed', 1)
+                ->exists();
+
+            if (!$finalPassed) {
+                Log::info('⏸️ Certificate ditahan, final quiz belum passed', [
+                    'user_id' => $userId,
+                    'course_id' => $courseId,
+                ]);
+                return;
+            }
+        }
+    }
                 Log::info('✅ Course 100% completed - generating certificate', [
                     'user_id' => $userId,
                     'course_id' => $courseId,

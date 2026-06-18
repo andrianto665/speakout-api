@@ -18,6 +18,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use App\Models\Quiz;
+use App\Models\QuizAttempt;
 
 class CourseProgressController extends Controller
 {
@@ -125,7 +127,8 @@ public function checkCourseCompletion(int $courseId): JsonResponse
         
         // 1. Get ALL lesson IDs for this course (only items with actual content)
         $lessonIds = \App\Models\Meeting::where('course_id', $courseId)
-            ->whereNotNull('content')  // Only lessons, not meeting headers
+            ->get()
+            ->filter(fn($m) => $m->isLesson())
             ->pluck('id')
             ->toArray();
         
@@ -164,12 +167,39 @@ public function checkCourseCompletion(int $courseId): JsonResponse
         
         // 4. If all lessons completed, mark enrollment & generate certificate
         if ($isCompleted) {
+            // Cek apakah final quiz sudah passed
+            $finalMeeting = \App\Models\Meeting::where('course_id', $courseId)
+                ->where('type', 'final')
+                ->first();
+
+            if ($finalMeeting) {
+                $finalQuiz = \App\Models\Quiz::where('meeting_id', $finalMeeting->id)->first();
+
+                if ($finalQuiz) {
+                    $finalPassed = \App\Models\QuizAttempt::where('user_id', $user->id)
+                        ->where('quiz_id', $finalQuiz->id)
+                        ->where('passed', 1)
+                        ->exists();
+
+                    if (!$finalPassed) {
+                        return response()->json([
+                            'course_completed' => false,
+                            'progress' => $progress,
+                            'total_lessons' => $total,
+                            'completed_lessons' => $completed,
+                            'final_quiz_required' => true,
+                            'message' => 'Selesaikan final quiz terlebih dahulu untuk mendapatkan sertifikat.'
+                        ]);
+                    }
+                }
+            }
+
             // Update enrollment
             \App\Models\Enrollment::updateOrCreate(
                 ['user_id' => $user->id, 'course_id' => $courseId],
                 ['completed_at' => now()]
             );
-            
+
             // Generate certificate if not exists yet
             $this->generateCertificateIfMissing($user->id, $courseId);
             
