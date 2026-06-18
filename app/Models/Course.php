@@ -3,6 +3,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property int $id
@@ -23,6 +24,7 @@ class Course extends Model
         'title',
         'description',
         'instructor',
+        'instructor_id',
         'thumbnail',
         'category',
         'level',
@@ -33,6 +35,11 @@ class Course extends Model
     public function meetings(): HasMany
     {
         return $this->hasMany(Meeting::class);
+    }
+
+    public function instructorUser(): BelongsTo
+    {
+    return $this->belongsTo(User::class, 'instructor_id');
     }
 
     public function enrollments(): HasMany

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use App\Models\User;
+use App\Models\Enrollment;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller 
@@ -17,27 +18,43 @@ class AuthController extends Controller
     public function register(Request $request) 
     {
         $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|email|unique:users',
-            'password' => 'required|min:6|confirmed'
+            'name'     => 'required|string|max:255',
+            'email'    => 'required|email|unique:users',
+            'password' => 'required|min:6|confirmed',
+            'course_id' => 'nullable|exists:courses,id', // opsional, validasi course ada
         ]);
 
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
+            'name'     => $request->name,
+            'email'    => $request->email,
             'password' => Hash::make($request->password),
-            // ✅ Set default role untuk user baru
-            'role' => 'student',
+            'role'     => 'student',
             'is_admin' => 0,
         ]);
 
+        // Auto-enroll ke course yang dipilih jika ada
+        if ($request->course_id) {
+            Enrollment::create([
+                'user_id'     => $user->id,
+                'course_id'   => $request->course_id,
+                'enrolled_at' => now(),
+            ]);
+        }
+        // Auto-enroll jika ada course_id
+        if ($request->course_id) {
+            \App\Models\Enrollment::create([
+                'user_id'     => $user->id,
+                'course_id'   => $request->course_id,
+                'enrolled_at' => now(),
+            ]);
+        }
         return response()->json([
             'message' => 'Registered successfully',
             'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
+                'id'       => $user->id,
+                'name'     => $user->name,
+                'email'    => $user->email,
+                'role'     => $user->role,
                 'is_admin' => $user->is_admin,
             ]
         ], 201);

@@ -104,6 +104,7 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
 
     // ================= USER MANAGEMENT =================
     Route::get('/users', [AdminController::class, 'getUsers']);
+    Route::post('/users', [AdminController::class, 'storeUser']);  // ⬅️ baris baru
     Route::delete('/users/{user}', [AdminController::class, 'deleteUser']);
 
     // ================= CONTENT MANAGEMENT =================

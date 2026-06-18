@@ -59,43 +59,9 @@ class UserController extends Controller
      */
     public function enroll(Request $request, int $courseId): JsonResponse
     {
-        try {
-            $user = Auth::user();
-            $course = Course::findOrFail($courseId);
-            
-            $existing = Enrollment::where('user_id', $user->id)
-                ->where('course_id', $courseId)
-                ->first();
-            
-            if ($existing) {
-                return response()->json([
-                    'message' => 'Already enrolled',
-                    'enrolled_at' => $existing->enrolled_at,
-                    'course' => $course
-                ], 200);
-            }
-            
-            $enrollment = Enrollment::create([
-                'user_id' => $user->id,
-                'course_id' => $courseId,
-                'enrolled_at' => now()
-            ]);
-            
-            return response()->json([
-                'message' => 'Successfully enrolled',
-                'course' => $course,
-                'enrolled_at' => $enrollment->enrolled_at
-            ], 201);
-            
-        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
-            return response()->json(['message' => 'Course not found'], 404);
-        } catch (\Exception $e) {
-            Log::error('UserController@enroll: ' . $e->getMessage());
-            return response()->json([
-                'message' => 'Enrollment failed',
-                'error' => config('app.debug') ? $e->getMessage() : null
-            ], 500);
-        }
+        return response()->json([
+            'message' => 'Self-enrollment sudah dimatikan. Akses course diberikan oleh admin setelah pembayaran dikonfirmasi.'
+        ], 403);
     }
     
     /**
@@ -111,7 +77,7 @@ class UserController extends Controller
             return response()->json([
                 'stats' => $this->getUserStats($user),
                 'in_progress_courses' => $this->getInProgressCourses($user),
-                'available_courses' => $this->getAvailableCourses($user)
+                'available_courses' => []
             ]);
             
         } catch (\Exception $e) {

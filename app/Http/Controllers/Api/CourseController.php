@@ -15,14 +15,14 @@ class CourseController extends Controller
     public function index()
 {
     try {
-        $courses = Course::withCount(['meetings as total_lessons' => function($q) {
-            $q->whereNotNull('content');
-        }])
-        ->select(
+        $courses = Course::select(
             'id', 'title', 'description', 'instructor', 'thumbnail', 
             'category', 'level', 'price', 'duration',
             'created_at', 'updated_at'
         )
+        ->withCount(['meetings as total_lessons' => function($q) {
+            $q->whereNotNull('content');
+        }])
         ->get()
         ->map(function($course) {
             // Pastikan total_lessons adalah integer
