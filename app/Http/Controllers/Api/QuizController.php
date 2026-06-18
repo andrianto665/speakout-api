@@ -142,7 +142,7 @@ class QuizController extends Controller
         // ✅ IMPROVED GRADING LOGIC
         $totalPoints = 0;
         $earnedPoints = 0;
-
+        
         foreach ($questions as $q) {
             $qid = $q->id ?? null;
             $correct = $q->correct_answer ?? null;
@@ -154,6 +154,14 @@ class QuizController extends Controller
             $userAns = $answers[$qid] ?? null;
 
             if ($userAns === null) continue;
+
+            // ✅ Normalize correct_answer: handle double-encoded JSON string & object string
+            if (is_string($correct)) {
+                $maybeDecoded = json_decode($correct, true);
+                if ($maybeDecoded !== null && json_last_error() === JSON_ERROR_NONE) {
+                    $correct = $maybeDecoded;
+                }
+            }
 
             // ✅ Normalize user answer to string
             $userValue = '';
@@ -171,15 +179,24 @@ class QuizController extends Controller
                 $correctValue = $correct['label'] ?? $correct['text'] ?? '';
             }
 
-            // ✅ For text legacy: map letter (A/B/C/D) to option value
-            if ($q->question_type === 'text' && is_string($userAns) && strlen($userAns) === 1 && ctype_alpha($userAns)) {
-                $letterIndex = ord(strtoupper($userAns)) - 65; // A=0, B=1, C=2, D=3
-                $options = is_string($q->options) ? json_decode($q->options, true) : $q->options;
-                
-                if (is_array($options) && isset($options[$letterIndex])) {
-                    $userValue = $options[$letterIndex];
-                }
-            }
+            // ✅ For text legacy: map letter (A/B/C/D) to option value — apply to BOTH user & correct answer
+$options = is_string($q->options) ? json_decode($q->options, true) : $q->options;
+
+if ($q->question_type === 'text' && is_array($options)) {
+    if (is_string($userAns) && strlen($userAns) === 1 && ctype_alpha($userAns)) {
+        $letterIndex = ord(strtoupper($userAns)) - 65; // A=0, B=1, C=2, D=3
+        if (isset($options[$letterIndex])) {
+            $userValue = $options[$letterIndex];
+        }
+    }
+
+    if (is_string($correctValue) && strlen($correctValue) === 1 && ctype_alpha($correctValue)) {
+        $letterIndex = ord(strtoupper($correctValue)) - 65;
+        if (isset($options[$letterIndex])) {
+            $correctValue = $options[$letterIndex];
+        }
+    }
+}
 
             // ✅ Compare (case-insensitive, trim whitespace)
             if (strtolower(trim($userValue)) === strtolower(trim($correctValue))) {

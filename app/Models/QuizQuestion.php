@@ -29,7 +29,6 @@ class QuizQuestion extends Model
 
     protected $casts = [
         'options' => 'array',
-        'correct_answer' => 'array',
     ];
 
     public function quiz()
