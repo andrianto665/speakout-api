@@ -182,7 +182,7 @@ class AdminCertificateController extends Controller
             $certificate->load(['user', 'course', 'approvedBy']);
 
             Log::info('✅ Certificate created manually by admin', [
-                'certificate_id' => $certificate->id,
+                'certificate_id' => $id,
                 'admin_id' => $admin->id,
                 'user_id' => $request->user_id,
                 'course_id' => $request->course_id,
@@ -260,7 +260,7 @@ class AdminCertificateController extends Controller
         $certificate->load(['user', 'course', 'approvedBy']);
 
         Log::info('Certificate approved by admin', [
-            'certificate_id' => $certificate->id,
+            'certificate_id' => $id,
             'admin_id' => Auth::id(),
         ]);
 
@@ -287,7 +287,7 @@ class AdminCertificateController extends Controller
     } catch (\Exception $e) {
         Log::error('AdminCertificateController@approve error', [
             'error' => $e->getMessage(),
-            'certificate_id' => $certificate->id,
+            'certificate_id' => $id,
         ]);
 
         return response()->json([
@@ -321,7 +321,7 @@ public function reject(Request $request, $id): JsonResponse
         ]);
 
         Log::info('Certificate rejected by admin', [
-            'certificate_id' => $certificate->id,
+            'certificate_id' => $id,
             'admin_id' => Auth::id(),
             'reason' => $request->reason,
         ]);
@@ -339,7 +339,7 @@ public function reject(Request $request, $id): JsonResponse
     } catch (\Exception $e) {
         Log::error('AdminCertificateController@reject error', [
             'error' => $e->getMessage(),
-            'certificate_id' => $certificate->id,
+            'certificate_id' => $id,
         ]);
 
         return response()->json([

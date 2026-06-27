@@ -3,7 +3,7 @@
  * Enrollment Model - Represents a user's enrollment in a course
  * 
  * This model tracks when a user enrolls in a course, their progress,
- * and completion status.
+ * completion status, and payment information.
  * 
  * @package App\Models
  * @author SpeakOut Team
@@ -27,6 +27,13 @@ class Enrollment extends Model
         'course_id',
         'enrolled_at',
         'completed_at',
+        'is_completed',
+        // ✅ KOLOM BARU UNTUK PEMBAYARAN
+        'payment_status',
+        'payment_proof',
+        'payment_method',
+        'amount_paid',
+        'paid_at',
     ];
 
     /**
@@ -37,6 +44,9 @@ class Enrollment extends Model
     protected $casts = [
         'enrolled_at' => 'datetime',
         'completed_at' => 'datetime',
+        'paid_at' => 'datetime',
+        'is_completed' => 'boolean',
+        'amount_paid' => 'decimal:2',
     ];
 
     /**
@@ -61,6 +71,11 @@ class Enrollment extends Model
         static::creating(function ($enrollment) {
             if (!$enrollment->enrolled_at) {
                 $enrollment->enrolled_at = now();
+            }
+            
+            // Set default payment status
+            if (!$enrollment->payment_status) {
+                $enrollment->payment_status = 'pending';
             }
         });
     }
@@ -139,8 +154,30 @@ class Enrollment extends Model
         return $query->where('course_id', $courseId);
     }
 
+    /**
+     * Scope a query to only include paid enrollments.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopePaid($query)
+    {
+        return $query->where('payment_status', 'paid');
+    }
+
+    /**
+     * Scope a query to only include pending payment enrollments.
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder  $query
+     * @return \Illuminate\Database\Eloquent\Builder
+     */
+    public function scopePendingPayment($query)
+    {
+        return $query->where('payment_status', 'pending');
+    }
+
     // =========================================================================
-    // ✨ ACCESSORS & MUTATORS
+    // ✨ ACCESSORS & MUTATORS - EXISTING
     // =========================================================================
 
     /**
@@ -150,7 +187,7 @@ class Enrollment extends Model
      */
     public function isCompleted(): bool
     {
-        return $this->completed_at !== null;
+        return $this->completed_at !== null || $this->is_completed === true;
     }
 
     /**
@@ -190,6 +227,91 @@ class Enrollment extends Model
     }
 
     // =========================================================================
+    // 💳 PAYMENT METHODS - NEW
+    // =========================================================================
+
+    /**
+     * Check if payment is completed.
+     *
+     * @return bool
+     */
+    public function isPaid(): bool
+    {
+        return $this->payment_status === 'paid';
+    }
+
+    /**
+     * Check if payment is pending.
+     *
+     * @return bool
+     */
+    public function isPending(): bool
+    {
+        return $this->payment_status === 'pending';
+    }
+
+    /**
+     * Check if payment is rejected.
+     *
+     * @return bool
+     */
+    public function isRejected(): bool
+    {
+        return $this->payment_status === 'rejected';
+    }
+
+    /**
+     * Check if enrollment can access course content.
+     * User can only access if payment is approved.
+     *
+     * @return bool
+     */
+    public function canAccessCourse(): bool
+    {
+        return $this->isPaid();
+    }
+
+    /**
+     * Approve payment for this enrollment.
+     *
+     * @return bool
+     */
+    public function approvePayment(): bool
+    {
+        return $this->update([
+            'payment_status' => 'paid',
+            'paid_at' => now(),
+        ]);
+    }
+
+    /**
+     * Reject payment for this enrollment.
+     *
+     * @param string $reason Optional rejection reason
+     * @return bool
+     */
+    public function rejectPayment(string $reason = ''): bool
+    {
+        return $this->update([
+            'payment_status' => 'rejected',
+            // Jika nanti ada kolom rejection_reason, bisa ditambahkan di sini
+        ]);
+    }
+
+    /**
+     * Mark payment as pending (for re-submission).
+     *
+     * @return bool
+     */
+    public function markPaymentPending(): bool
+    {
+        return $this->update([
+            'payment_status' => 'pending',
+            'paid_at' => null,
+        ]);
+    }
+
+    // =========================================================================
     // 📦 SERIALIZATION (Optional: Customize API response)
     // =========================================================================
 
@@ -201,6 +323,8 @@ class Enrollment extends Model
     protected $appends = [
         'status',
         'duration_days',
+        'payment_status_label',
+        'can_access',
     ];
 
     /**
@@ -221,5 +345,53 @@ class Enrollment extends Model
     public function getDurationDaysAttribute(): ?int
     {
         return $this->getDurationInDays();
+    }
+
+    /**
+     * Get the payment status label for API response.
+     *
+     * @return string
+     */
+    public function getPaymentStatusLabelAttribute(): string
+    {
+        $labels = [
+            'pending' => 'Menunggu Pembayaran',
+            'paid' => 'Lunas',
+            'rejected' => 'Ditolak',
+        ];
+
+        return $labels[$this->payment_status] ?? 'Unknown';
+    }
+
+    /**
+     * Get the can access attribute for API response.
+     *
+     * @return bool
+     */
+    public function getCanAccessAttribute(): bool
+    {
+        return $this->canAccessCourse();
+    }
+
+    /**
+     * Get the array representation of the enrollment.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        $array = parent::toArray();
+        
+        // Add payment information to array
+        $array['payment'] = [
+            'status' => $this->payment_status,
+            'status_label' => $this->payment_status_label,
+            'amount' => $this->amount_paid,
+            'method' => $this->payment_method,
+            'paid_at' => $this->paid_at,
+            'can_access' => $this->canAccessCourse(),
+        ];
+
+        return $array;
     }
 }

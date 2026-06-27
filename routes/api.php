@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\AdminCertificateController;
 use App\Http\Controllers\Api\AdminContentController;
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AdminQuizController;
+use App\Http\Controllers\Api\AdminPaymentController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CertificateController;
 use App\Http\Controllers\Api\CourseController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Api\CourseProgressController;
 use App\Http\Controllers\Api\QuizController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\UserController;
+use App\Http\Controllers\Api\PaymentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -73,6 +75,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/quizzes/{quizId}', [QuizController::class, 'show']);
     Route::post('/quizzes/{quizId}/submit', [QuizController::class, 'submit']);
 
+    // ================= PAYMENT (User) =================
+    Route::get('/user/enrollments', [PaymentController::class, 'getMyEnrollments']);
+    Route::get('/user/enrollments/{id}/payment-info', [PaymentController::class, 'getPaymentInfo']);
+    Route::post('/user/enrollments/{id}/upload-payment', [PaymentController::class, 'uploadProof']);
+
     // ================= DEBUG (Remove in Production) =================
     Route::get('/debug/whoami', fn(Request $request) => response()->json([
         'id' => $request->user()->id,
@@ -117,6 +124,12 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
     Route::post('/quizzes/{quizId}/questions', [AdminQuizController::class, 'addQuestion']);
     Route::put('/quizzes/questions/{questionId}', [AdminQuizController::class, 'editQuestion']);
     Route::delete('/quizzes/questions/{questionId}', [AdminQuizController::class, 'deleteQuestion']);
+
+    // ================= PAYMENT MANAGEMENT (Admin) =================
+    Route::get('/payments', [AdminPaymentController::class, 'getAllPayments']);
+    Route::get('/payments/pending', [AdminPaymentController::class, 'getPendingPayments']);
+    Route::post('/payments/{id}/approve', [AdminPaymentController::class, 'approvePayment']);
+    Route::post('/payments/{id}/reject', [AdminPaymentController::class, 'rejectPayment']);
 
     // List all quizzes untuk dropdown
     Route::get('/quizzes', function () {

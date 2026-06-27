@@ -324,25 +324,30 @@ if ($q->question_type === 'text' && is_array($options)) {
             ]);
             
             if ($completedLessons >= $totalLessons) {
-                // ✅ TAMBAHAN: pastikan final quiz sudah passed sebelum generate certificate
-    $finalMeeting = Meeting::where('course_id', $courseId)->where('type', 'final')->first();
-    if ($finalMeeting) {
-        $finalQuiz = Quiz::where('meeting_id', $finalMeeting->id)->first();
-        if ($finalQuiz) {
-            $finalPassed = QuizAttempt::where('user_id', $userId)
-                ->where('quiz_id', $finalQuiz->id)
-                ->where('passed', 1)
-                ->exists();
+                // ✅ Pastikan SEMUA quiz di course ini sudah passed (bukan cuma type='final')
+                $meetingsWithQuiz = Meeting::where('course_id', $courseId)
+                    ->whereHas('quiz')
+                    ->with('quiz')
+                    ->get();
 
-            if (!$finalPassed) {
-                Log::info('⏸️ Certificate ditahan, final quiz belum passed', [
-                    'user_id' => $userId,
-                    'course_id' => $courseId,
-                ]);
-                return;
-            }
-        }
-    }
+                foreach ($meetingsWithQuiz as $m) {
+                    $q = $m->quiz;
+                    if (!$q) continue;
+
+                    $passed = QuizAttempt::where('user_id', $userId)
+                        ->where('quiz_id', $q->id)
+                        ->where('passed', 1)
+                        ->exists();
+
+                    if (!$passed) {
+                        Log::info('⏸️ Certificate ditahan, ada quiz yang belum passed', [
+                            'user_id' => $userId,
+                            'course_id' => $courseId,
+                            'unpassed_quiz' => $q->title ?? $m->title,
+                        ]);
+                        return;
+                    }
+                }
                 Log::info('✅ Course 100% completed - generating certificate', [
                     'user_id' => $userId,
                     'course_id' => $courseId,
@@ -361,7 +366,7 @@ if ($q->question_type === 'text' && is_array($options)) {
                 Log::info("🎉 Certificate auto-generated (status: {$certificate->status})", [
                     'user_id' => $userId,
                     'course_id' => $courseId,
-                    'certificate_id' => $certificate->id,
+                    'certificate_id' => $id,
                     'certificate_number' => $certificate->certificate_number,
                 ]);
             }

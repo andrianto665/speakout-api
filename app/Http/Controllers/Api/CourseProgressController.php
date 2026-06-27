@@ -96,6 +96,15 @@ class CourseProgressController extends Controller
         ]);
         
         $user = Auth::user();
+        $meeting = Meeting::find($validated['meeting_id']);
+
+        // ✅ Cegah manual-complete untuk meeting yang punya quiz —
+        // wajib lulus quiz lewat QuizController@submit, bukan toggle manual
+        if ($meeting && $meeting->quiz()->exists() && $validated['is_completed']) {
+            return response()->json([
+                'message' => 'Meeting ini memiliki quiz. Selesaikan & lulus quiz untuk menandai selesai.'
+            ], 422);
+        }
         
         // Update or create progress record
         UserProgress::updateOrCreate(
@@ -167,31 +176,18 @@ public function checkCourseCompletion(int $courseId): JsonResponse
         
         // 4. If all lessons completed, mark enrollment & generate certificate
         if ($isCompleted) {
-            // Cek apakah final quiz sudah passed
-            $finalMeeting = \App\Models\Meeting::where('course_id', $courseId)
-                ->where('type', 'final')
-                ->first();
+            // ✅ Cek SEMUA quiz di course ini sudah passed (bukan cuma yang type='final')
+            [$allQuizzesPassed, $unpassedQuizTitle] = $this->allQuizzesPassed($user->id, $courseId);
 
-            if ($finalMeeting) {
-                $finalQuiz = \App\Models\Quiz::where('meeting_id', $finalMeeting->id)->first();
-
-                if ($finalQuiz) {
-                    $finalPassed = \App\Models\QuizAttempt::where('user_id', $user->id)
-                        ->where('quiz_id', $finalQuiz->id)
-                        ->where('passed', 1)
-                        ->exists();
-
-                    if (!$finalPassed) {
-                        return response()->json([
-                            'course_completed' => false,
-                            'progress' => $progress,
-                            'total_lessons' => $total,
-                            'completed_lessons' => $completed,
-                            'final_quiz_required' => true,
-                            'message' => 'Selesaikan final quiz terlebih dahulu untuk mendapatkan sertifikat.'
-                        ]);
-                    }
-                }
+            if (!$allQuizzesPassed) {
+                return response()->json([
+                    'course_completed' => false,
+                    'progress' => $progress,
+                    'total_lessons' => $total,
+                    'completed_lessons' => $completed,
+                    'final_quiz_required' => true,
+                    'message' => "Selesaikan & lulus quiz \"{$unpassedQuizTitle}\" terlebih dahulu untuk mendapatkan sertifikat."
+                ]);
             }
 
             // Update enrollment
@@ -232,6 +228,35 @@ public function checkCourseCompletion(int $courseId): JsonResponse
         ], 500);
     }
 }
+
+/**
+     * Helper: Cek apakah SEMUA quiz dalam course ini sudah passed oleh user
+     * 
+     * @return array [bool $allPassed, string|null $unpassedQuizTitle]
+     */
+    private function allQuizzesPassed(int $userId, int $courseId): array
+    {
+        $meetingsWithQuiz = \App\Models\Meeting::where('course_id', $courseId)
+            ->whereHas('quiz')
+            ->with('quiz')
+            ->get();
+
+        foreach ($meetingsWithQuiz as $meeting) {
+            $quiz = $meeting->quiz;
+            if (!$quiz) continue;
+
+            $passed = \App\Models\QuizAttempt::where('user_id', $userId)
+                ->where('quiz_id', $quiz->id)
+                ->where('passed', 1)
+                ->exists();
+
+            if (!$passed) {
+                return [false, $meeting->title ?? $quiz->title ?? 'Quiz'];
+            }
+        }
+
+        return [true, null];
+    }
 
 /**
  * Helper: Generate certificate if not exists yet
