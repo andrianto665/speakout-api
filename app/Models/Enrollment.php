@@ -28,12 +28,16 @@ class Enrollment extends Model
         'enrolled_at',
         'completed_at',
         'is_completed',
-        // ✅ KOLOM BARU UNTUK PEMBAYARAN
         'payment_status',
         'payment_proof',
         'payment_method',
         'amount_paid',
         'paid_at',
+        // ✅ TAMBAHKAN 4 KOLOM MIDTRANS INI
+        'payment_gateway_order_id',
+        'payment_gateway_snap_token',
+        'payment_gateway_status',
+        'payment_gateway_response',
     ];
 
     /**

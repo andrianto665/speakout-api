@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\QuizController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\PaymentController;
+use App\Http\Controllers\Api\PaymentGatewayController;
 
 /*
 |--------------------------------------------------------------------------
@@ -28,6 +29,10 @@ use App\Http\Controllers\Api\PaymentController;
 Route::post('/auth/register', [AuthController::class, 'register']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
+// ================= GOOGLE OAUTH =================
+Route::get('/auth/google/redirect', [AuthController::class, 'redirectToGoogle']);
+Route::get('/auth/google/callback', [AuthController::class, 'handleGoogleCallback']);
+
 // ================= TEACHERS =================
 Route::get('/teachers', [TeacherController::class, 'index']);
 Route::get('/teachers/{name}', [TeacherController::class, 'show']);
@@ -35,6 +40,9 @@ Route::get('/teachers/{name}', [TeacherController::class, 'show']);
 // ================= COURSES =================
 Route::get('/courses', [CourseController::class, 'index']);
 Route::get('/courses/{id}', [CourseController::class, 'show']);
+
+// ================= PAYMENT GATEWAY NOTIFICATION (Public - dipanggil Midtrans) =================
+Route::post('/payment/notification', [PaymentGatewayController::class, 'midtransNotification']);
 
 
 /*
@@ -80,14 +88,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user/enrollments/{id}/payment-info', [PaymentController::class, 'getPaymentInfo']);
     Route::post('/user/enrollments/{id}/upload-payment', [PaymentController::class, 'uploadProof']);
 
-    // ================= DEBUG (Remove in Production) =================
-    Route::get('/debug/whoami', fn(Request $request) => response()->json([
-        'id' => $request->user()->id,
-        'name' => $request->user()->name,
-        'email' => $request->user()->email,
-        'role' => $request->user()->role,
-        'enrolled_count' => $request->user()->enrolledCourses()->count()
-    ]));
+    // ================= PAYMENT GATEWAY (Midtrans) =================
+    Route::post('/payment/create', [PaymentGatewayController::class, 'createPayment']);
+    Route::get('/payment/status/{enrollment_id}', [PaymentGatewayController::class, 'checkPaymentStatus']);
+    Route::post('/payment/sync/{enrollment_id}', [PaymentGatewayController::class, 'syncStatus']);
 
 }); // ← ✅ TUTUP GROUP auth:sanctum
 
@@ -127,6 +131,7 @@ Route::middleware(['auth:sanctum', 'is_admin'])->prefix('admin')->group(function
 
     // ================= PAYMENT MANAGEMENT (Admin) =================
     Route::get('/payments', [AdminPaymentController::class, 'getAllPayments']);
+    Route::get('/payments/{id}', [AdminPaymentController::class, 'getPaymentDetail']);
     Route::get('/payments/pending', [AdminPaymentController::class, 'getPendingPayments']);
     Route::post('/payments/{id}/approve', [AdminPaymentController::class, 'approvePayment']);
     Route::post('/payments/{id}/reject', [AdminPaymentController::class, 'rejectPayment']);

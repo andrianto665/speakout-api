@@ -193,4 +193,39 @@ class AdminPaymentController extends Controller
             ]
         ]);
     }
+
+        /**
+     * Get detail 1 payment untuk kwitansi
+     * GET /api/admin/payments/{id}
+     */
+    public function getPaymentDetail($id)
+    {
+        if (Auth::user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized. Admin access required.'
+            ], 403);
+        }
+
+        $p = Enrollment::with(['user', 'course'])->findOrFail($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'id' => $p->id,
+                'user' => [
+                    'name' => $p->user->name,
+                    'email' => $p->user->email,
+                ],
+                'course' => [
+                    'title' => $p->course->title,
+                ],
+                'amount' => $p->amount_paid,
+                'payment_status' => $p->payment_status,
+                'payment_method' => $p->payment_method,
+                'paid_at' => $p->paid_at,
+                'enrolled_at' => $p->enrolled_at,
+            ]
+        ]);
+    }
 }

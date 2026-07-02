@@ -57,12 +57,64 @@ class UserController extends Controller
      * 
      * POST /api/user/enroll/{courseId}
      */
-    public function enroll(Request $request, int $courseId): JsonResponse
-    {
+    /**
+ * Enroll user in a course
+ * 
+ * POST /api/user/enroll/{courseId}
+ */
+public function enroll(Request $request, int $courseId): JsonResponse
+{
+    try {
+        $user = Auth::user();
+        $course = Course::find($courseId);
+
+        if (!$course) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Course tidak ditemukan'
+            ], 404);
+        }
+
+        // ✅ Cek kalau user sudah pernah enroll ke course ini
+        $existing = Enrollment::where('user_id', $user->id)
+            ->where('course_id', $courseId)
+            ->first();
+
+        if ($existing) {
+            // Sudah pernah enroll → jangan buat baru, kembalikan enrollment_id yang lama
+            return response()->json([
+                'success' => true,
+                'message' => 'Kamu sudah terdaftar di course ini',
+                'enrollment_id' => $existing->id,
+                'payment_status' => $existing->payment_status,
+            ]);
+        }
+
+        // ✅ Buat enrollment baru
+        $enrollment = Enrollment::create([
+            'user_id' => $user->id,
+            'course_id' => $courseId,
+            'amount_paid' => $course->price ?? 0,
+            'payment_status' => ($course->price ?? 0) > 0 ? 'pending' : 'paid',
+            'enrolled_at' => now(),
+        ]);
+
         return response()->json([
-            'message' => 'Self-enrollment sudah dimatikan. Akses course diberikan oleh admin setelah pembayaran dikonfirmasi.'
-        ], 403);
+            'success' => true,
+            'message' => 'Berhasil mendaftar course',
+            'enrollment_id' => $enrollment->id,
+            'payment_status' => $enrollment->payment_status,
+        ]);
+
+    } catch (\Exception $e) {
+        Log::error('UserController@enroll: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mendaftar course',
+            'error' => config('app.debug') ? $e->getMessage() : null
+        ], 500);
     }
+}
     
     /**
      * Get dashboard summary

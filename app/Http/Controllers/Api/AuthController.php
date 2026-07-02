@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\Enrollment;
 use App\Models\Course;
 use Illuminate\Validation\ValidationException;
+use Laravel\Socialite\Facades\Socialite;
 
 class AuthController extends Controller 
 {
@@ -145,4 +146,83 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
         return response()->json(['message' => 'Logged out successfully']);
     }
+
+    // 👇👇👇 TEMPEL 2 METHOD BARU DI SINI 👇👇👇
+
+    /**
+     * Redirect to Google OAuth
+     * GET /api/auth/google/redirect
+     */
+    public function redirectToGoogle()
+    {
+        return Socialite::driver('google')
+            ->stateless()
+            ->redirect();
+    }
+
+    /**
+     * Handle Google OAuth callback
+     * GET /api/auth/google/callback
+     */
+    public function handleGoogleCallback()
+    {
+        try {
+            $googleUser = Socialite::driver('google')->stateless()->user();
+
+            \Log::info('Google User Data:', [
+                'id' => $googleUser->getId(),
+                'name' => $googleUser->getName(),
+                'email' => $googleUser->getEmail(),
+                'avatar' => $googleUser->getAvatar()
+            ]);
+
+            $user = User::where('google_id', $googleUser->getId())->first();
+
+            if (!$user) {
+                $user = User::where('email', $googleUser->getEmail())->first();
+
+                if ($user) {
+                    $user->update([
+                        'google_id' => $googleUser->getId(),
+                        'avatar' => $googleUser->getAvatar(),
+                    ]);
+                } else {
+                    $user = User::create([
+                        'name' => $googleUser->getName(),
+                        'email' => $googleUser->getEmail(),
+                        'google_id' => $googleUser->getId(),
+                        'avatar' => $googleUser->getAvatar(),
+                        'password' => null,
+                        'role' => 'student',
+                        'is_admin' => 0,
+                    ]);
+                }
+            }
+
+            $token = $user->createToken('speakout-api')->plainTextToken;
+
+            $frontendUrl = env('FRONTEND_URL', 'http://127.0.0.1:5500');
+
+            $userData = json_encode([
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'is_admin' => $user->is_admin,
+                'avatar' => $user->avatar,
+            ]);
+
+            $redirectUrl = $frontendUrl . '/dashboard.html?token=' . $token . '&user=' . urlencode($userData);
+
+            return redirect($redirectUrl);
+        } catch (\Exception $e) {
+            \Log::error('Google OAuth Error:', ['error' => $e->getMessage()]);
+
+            $frontendUrl = env('FRONTEND_URL', 'http://127.0.0.1:5500');
+            return redirect($frontendUrl . '/login.html?error=' . urlencode('Google authentication failed: ' . $e->getMessage()));
+        }
+    }
+
+    // 👆👆👆 SAMPAI SINI 👆👆👆
+
 }

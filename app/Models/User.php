@@ -23,6 +23,8 @@ class User extends Authenticatable
         'password',
         'phone',
         'role', // ← Tambahkan ini
+        'google_id',  // ✅ TAMBAHKAN
+        'avatar',     // ✅ TAMBAHKAN
     ];
 
     /**
