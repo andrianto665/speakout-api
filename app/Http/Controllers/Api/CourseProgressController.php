@@ -98,7 +98,15 @@ class CourseProgressController extends Controller
         $user = Auth::user();
         $meeting = Meeting::find($validated['meeting_id']);
 
+        // ✅ CEK LOCKING SEQUENTIAL
+        if ($meeting && \App\Services\MeetingLockService::isMeetingLocked($user->id, $meeting)) {
+            return response()->json([
+                'message' => 'Meeting ini masih terkunci. Selesaikan meeting sebelumnya terlebih dahulu.'
+            ], 403);
+        }
+
         // ✅ Cegah manual-complete untuk meeting yang punya quiz —
+
         // wajib lulus quiz lewat QuizController@submit, bukan toggle manual
         if ($meeting && $meeting->quiz()->exists() && $validated['is_completed']) {
             return response()->json([

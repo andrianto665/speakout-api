@@ -61,6 +61,12 @@ class CourseController extends Controller
                 $q->orderBy('order_number', 'asc');
             }])->findOrFail($id);
 
+            $lockMap = \App\Services\MeetingLockService::getLockMap(Auth::id(), $course->meetings);
+            $course->meetings->transform(function ($m) use ($lockMap) {
+                $m->is_locked = $lockMap[$m->id] ?? false;
+                return $m;
+            });
+
             return response()->json($course);
             
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

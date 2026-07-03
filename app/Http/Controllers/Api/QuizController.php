@@ -49,6 +49,13 @@ class QuizController extends Controller
                 'meeting.course'
             ])->findOrFail($quizId);
 
+            // ✅ CEK LOCKING SEQUENTIAL
+            if ($quiz->meeting && \App\Services\MeetingLockService::isMeetingLocked(Auth::id(), $quiz->meeting)) {
+                return response()->json([
+                    'message' => 'Selesaikan pertemuan sebelumnya terlebih dahulu.'
+                ], 403);
+            }
+
             // Parse options: JSON string → array & hapus correct_answer (security)
             foreach ($quiz->questions as $q) {
                 if (is_string($q->options ?? null)) {
@@ -111,6 +118,10 @@ class QuizController extends Controller
         $quiz = Quiz::with('meeting')->find($quizId);
         if (!$quiz || !isset($quiz->id)) {
             return response()->json(['message' => 'Quiz not found'], 404);
+        }
+        // ✅ CEK LOCKING SEQUENTIAL
+        if ($quiz->meeting && \App\Services\MeetingLockService::isMeetingLocked($user->id, $quiz->meeting)) {
+            return response()->json(['message' => 'Meeting ini masih terkunci.'], 403);
         }
 
         $answers = $request->input('answers', []);

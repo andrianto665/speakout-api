@@ -39,7 +39,6 @@ Route::get('/teachers/{name}', [TeacherController::class, 'show']);
 
 // ================= COURSES =================
 Route::get('/courses', [CourseController::class, 'index']);
-Route::get('/courses/{id}', [CourseController::class, 'show']);
 
 // ================= PAYMENT GATEWAY NOTIFICATION (Public - dipanggil Midtrans) =================
 Route::post('/payment/notification', [PaymentGatewayController::class, 'midtransNotification']);
@@ -51,7 +50,9 @@ Route::post('/payment/notification', [PaymentGatewayController::class, 'midtrans
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
-
+    
+    Route::get('/courses/{id}', [CourseController::class, 'show']); // ✅ dipindah ke sini
+    
     // ================= AUTH =================
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/user', fn(Request $request) => $request->user());
