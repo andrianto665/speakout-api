@@ -35,7 +35,6 @@ class CourseProgressController extends Controller
     {
         $user = Auth::user();
         
-        // Get all meetings for this course (FLAT structure)
         $meetings = Meeting::where('course_id', $courseId)->get();
         
         if ($meetings->isEmpty()) {
@@ -43,38 +42,37 @@ class CourseProgressController extends Controller
                 'progress' => 0,
                 'total_lessons' => 0,
                 'completed_lessons' => 0,
-                'is_completed' => false
+                'is_completed' => false,
+                'completed_meeting_ids' => []
             ]);
         }
         
-        // Get completed meeting IDs for this user
         $completedIds = UserProgress::where('user_id', $user->id)
             ->where('is_completed', true)
             ->whereIn('meeting_id', $meetings->pluck('id'))
             ->pluck('meeting_id');
         
-        // Calculate progress (only lessons with content, exclude meeting headers)
-        $lessons = $meetings->filter(fn($m) => $m->content !== null);
+        // ✅ UBAH: pakai isLesson() biar konsisten dengan UserController & checkCourseCompletion()
+        $lessons = $meetings->filter(fn($m) => $m->isLesson());
         $completedLessons = $lessons->filter(fn($m) => $completedIds->contains($m->id));
         
         $total = $lessons->count();
         $completed = $completedLessons->count();
         $progress = $total > 0 ? round(($completed / $total) * 100) : 0;
         
-        // ✅ Check if course is fully completed
         $isCompleted = $completed >= $total;
         
         return response()->json([
             'progress' => $progress,
             'total_lessons' => $total,
             'completed_lessons' => $completed,
-            // ✅ NEW: Fields for frontend badge & admin analytics
             'is_completed' => $isCompleted,
             'course_completed_at' => $isCompleted 
                 ? Enrollment::where('user_id', $user->id)
                     ->where('course_id', $courseId)
                     ->value('completed_at') 
-                : null
+                : null,
+            'completed_meeting_ids' => $completedIds->values()
         ]);
     }
     

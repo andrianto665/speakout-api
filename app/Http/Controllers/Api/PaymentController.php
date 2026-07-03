@@ -171,20 +171,39 @@ class PaymentController extends Controller
     {
         try {
             $enrollments = Enrollment::where('user_id', Auth::id())
-                ->with('course')
+                ->with(['course.meetings']) // ✅ UBAH: load meetings sekalian, hindari N+1
                 ->orderBy('created_at', 'desc')
                 ->get()
                 ->map(function($e) {
+                    $course = $e->course;
+                    $progress = 0;
+                    $totalLessons = 0;
+                    $completedLessons = 0;
+
+                    // ✅ BARU: hitung progress dari user_progress, konsisten dengan UserController & CourseProgressController
+                    if ($course) {
+                        $lessons = $course->meetings->filter(fn($m) => $m->isLesson());
+                        $totalLessons = $lessons->count();
+
+                        if ($totalLessons > 0) {
+                            $completedLessons = \App\Models\UserProgress::where('user_id', Auth::id())
+                                ->where('is_completed', true)
+                                ->whereIn('meeting_id', $lessons->pluck('id'))
+                                ->count();
+                            $progress = round(($completedLessons / $totalLessons) * 100);
+                        }
+                    }
+
                     return [
                         'id' => $e->id,
                         'course' => [
-                            'id' => $e->course->id ?? null,
-                            'title' => $e->course->title ?? 'Course tidak ditemukan',
-                            'instructor' => $e->course->instructor ?? '-',
-                            'thumbnail' => $e->course->thumbnail ?? null,
-                            'category' => $e->course->category ?? null,
-                            'level' => $e->course->level ?? null,
-                            'duration' => $e->course->duration ?? null,
+                            'id' => $course->id ?? null,
+                            'title' => $course->title ?? 'Course tidak ditemukan',
+                            'instructor' => $course->instructor ?? '-',
+                            'thumbnail' => $course->thumbnail ?? null,
+                            'category' => $course->category ?? null,
+                            'level' => $course->level ?? null,
+                            'duration' => $course->duration ?? null,
                         ],
                         'amount' => $e->amount_paid,
                         'payment_status' => $e->payment_status,
@@ -193,6 +212,11 @@ class PaymentController extends Controller
                         'can_access' => $e->canAccessCourse(),
                         'enrolled_at' => $e->enrolled_at,
                         'paid_at' => $e->paid_at,
+                        // ✅ BARU: field yang dibutuhkan dashboard.html
+                        'progress' => $progress,
+                        'total_lessons' => $totalLessons,
+                        'completed_lessons' => $completedLessons,
+                        'is_completed' => $totalLessons > 0 && $progress == 100,
                     ];
                 });
 

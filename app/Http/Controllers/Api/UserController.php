@@ -518,8 +518,9 @@ private function calculateProgress($course, $user): int|float
                 ], 401);
             }
             
-            // 1. Get all enrolled courses for this user
+            // 1. Get all enrolled courses for this user (✅ hanya yang sudah paid)
             $enrollments = \App\Models\Enrollment::where('user_id', $user->id)
+                ->where('payment_status', 'paid') // ✅ BARU: course yang belum dibayar gak usah nongol di gradebook
                 ->with(['course' => function($q) {
                     $q->select('id', 'title', 'instructor', 'thumbnail');
                 }])
