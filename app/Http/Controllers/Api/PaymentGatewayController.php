@@ -49,10 +49,16 @@ class PaymentGatewayController extends Controller
             ], 400);
         }
 
-        // Buat transaction details
+        // ✅ Override amount untuk testing di environment local/sandbox
+        // Nominal asli tetap tersimpan di enrollment->amount_paid (database tidak berubah)
+        $grossAmount = (int) $enrollment->amount_paid;
+        if (config('app.env') === 'local' && !config('midtrans.is_production')) {
+            $grossAmount = 1000; // ✅ nominal testing, bebas diganti sesuai kebutuhan
+        }
+
         $transactionDetails = [
             'order_id' => 'ENR-' . $enrollment->id . '-' . time(),
-            'gross_amount' => (int) $enrollment->amount_paid,
+            'gross_amount' => $grossAmount,
         ];
 
         // Customer details
@@ -66,7 +72,7 @@ class PaymentGatewayController extends Controller
         $itemDetails = [
             [
                 'id' => $enrollment->course->id,
-                'price' => (int) $enrollment->amount_paid,
+                'price' => $grossAmount, // ✅ pakai variabel yang sama, bukan amount_paid asli
                 'quantity' => 1,
                 'name' => $enrollment->course->title,
             ],

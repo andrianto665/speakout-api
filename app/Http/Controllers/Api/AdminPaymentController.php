@@ -40,12 +40,14 @@ class AdminPaymentController extends Controller
                         'id' => $p->course->id,
                         'title' => $p->course->title,
                     ],
-                    'amount' => $p->amount_paid,
+                    'amount_paid' => $p->amount_paid,
                     'payment_method' => $p->payment_method,
                     'payment_proof' => $p->payment_proof ? 
                         asset('storage/' . $p->payment_proof) : null,
+                    'payment_proof_filename' => $p->payment_proof ? basename($p->payment_proof) : null,
                     'enrolled_at' => $p->enrolled_at,
-                ];
+                    'created_at' => $p->updated_at,
+                    ];
             });
 
         return response()->json([
@@ -171,7 +173,7 @@ class AdminPaymentController extends Controller
                         'id' => $p->course->id,
                         'title' => $p->course->title,
                     ],
-                    'amount' => $p->amount_paid,
+                    'amount_paid' => $p->amount_paid, // ✅ diganti dari 'amount' → 'amount_paid'
                     'payment_status' => $p->payment_status,
                     'payment_status_label' => $p->payment_status_label,
                     'payment_method' => $p->payment_method,
@@ -179,6 +181,7 @@ class AdminPaymentController extends Controller
                         asset('storage/' . $p->payment_proof) : null,
                     'paid_at' => $p->paid_at,
                     'enrolled_at' => $p->enrolled_at,
+                    'created_at' => $p->updated_at, // ✅ dari fix sebelumnya (tanggal upload)
                 ];
             });
 
@@ -190,6 +193,7 @@ class AdminPaymentController extends Controller
                 'pending' => $payments->where('payment_status', 'pending')->count(),
                 'paid' => $payments->where('payment_status', 'paid')->count(),
                 'rejected' => $payments->where('payment_status', 'rejected')->count(),
+                'total_revenue' => $payments->where('payment_status', 'paid')->sum('amount_paid'), // ✅ baru
             ]
         ]);
     }
@@ -220,11 +224,13 @@ class AdminPaymentController extends Controller
                 'course' => [
                     'title' => $p->course->title,
                 ],
-                'amount' => $p->amount_paid,
+                'amount_paid' => $p->amount_paid,
                 'payment_status' => $p->payment_status,
                 'payment_method' => $p->payment_method,
+                'payment_proof_filename' => $p->payment_proof ? basename($p->payment_proof) : null,
                 'paid_at' => $p->paid_at,
                 'enrolled_at' => $p->enrolled_at,
+                'created_at' => $p->updated_at,
             ]
         ]);
     }
